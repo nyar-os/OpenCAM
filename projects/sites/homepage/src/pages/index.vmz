@@ -1,0 +1,716 @@
+<template>
+    <SiteShell page="home">
+        <section class="hero">
+            <div class="hero__copy">
+                <span class="tag">2.5-axis · deterministic · unreleased</span>
+                <h1>
+                    Toolpaths and G-code<br />
+                    that reproduce from plain text.
+                </h1>
+                <p class="hero__sub">
+                    OpenCAM keeps one rectangular stock, a tool table and a list
+                    of operations in a single <code>.ocam</code> document. A Rust
+                    session owns validation, toolpath generation and the program;
+                    the CLI, Node-API addon and TypeScript SDK are wrappers over
+                    that same core. Unimplemented routes return
+                    <code>capability/not-implemented</code> instead of an
+                    approximation.
+                </p>
+
+                <dl class="spec">
+                    <div class="spec__row">
+                        <dt>Strategies</dt>
+                        <dd>face · contour · pocket · drill</dd>
+                    </div>
+                    <div class="spec__row">
+                        <dt>Depth control</dt>
+                        <dd>multi-pass stepdown · raster stepover</dd>
+                    </div>
+                    <div class="spec__row">
+                        <dt>Units</dt>
+                        <dd>mm · mm/min · rpm, no conversion</dd>
+                    </div>
+                    <div class="spec__row">
+                        <dt>Output</dt>
+                        <dd>G-code · JSON · CSV · Markdown</dd>
+                    </div>
+                </dl>
+
+                <div class="hero__cta">
+                    <Link to="FeaturesPage" class="btn btn--primary">
+                        Open feature index
+                    </Link>
+                    <Link to="RoadmapPage" class="btn btn--ghost">
+                        Read the gate log
+                    </Link>
+                </div>
+            </div>
+
+            <div class="sheet" aria-hidden="true">
+                <div class="sheet__head">
+                    <span class="sheet__no">SHEET 01 / 03</span>
+                    <span>FACE · CONTOUR · DRILL</span>
+                    <span class="sheet__rev">REV 0</span>
+                </div>
+
+                <div class="draw">
+                    <div class="draw__canvas">
+                        <span class="stock"></span>
+                        <i class="raster" v-for="row in rasterRows" :key="row" :style="{ top: row + 'px' }"></i>
+                        <span class="hole" style="left: 44px; top: 40px"></span>
+                        <span class="hole" style="left: 212px; top: 96px"></span>
+                        <span class="hole" style="left: 128px; top: 132px"></span>
+                        <span class="dim" style="left: 20px; top: 174px; width: 240px"></span>
+                        <span class="dim__tick" style="left: 20px; top: 170px"></span>
+                        <span class="dim__tick" style="left: 260px; top: 170px"></span>
+                        <span class="dim-label">120 mm</span>
+                        <span class="note">6 mm flat · S12000 · F1200</span>
+                    </div>
+                </div>
+
+                <div class="readout">
+                    <div class="readout__row">
+                        <span>moves</span>
+                        <b>{{ moves }}</b>
+                        <i>segments</i>
+                    </div>
+                    <div class="readout__row">
+                        <span>cut length</span>
+                        <b>{{ cutLength }}</b>
+                        <i>mm</i>
+                    </div>
+                    <div class="readout__row">
+                        <span>cycle time</span>
+                        <b>{{ cycleTime }}</b>
+                        <i>s</i>
+                    </div>
+                    <div class="readout__row readout__row--ok">
+                        <span>validation</span>
+                        <b>PASS</b>
+                        <i>ok: true</i>
+                    </div>
+                </div>
+
+                <div class="sheet__foot">
+                    <span>$ open-cam gcode bracket.ocam --out bracket.nc</span>
+                    <span>exit 0</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">01</span>Capability matrix</h2>
+                <p>What this build actually generates, and what fails with a stable error code.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="matrix">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Capability</th>
+                            <th>Method</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="row in capabilityRows" :key="row.code">
+                            <td class="name">{{ row.code }}</td>
+                            <td>{{ row.capability }}</td>
+                            <td class="method">{{ row.method }}</td>
+                            <td><span :class="statusChip(row.status)">{{ row.status }}</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="table-note">
+                The machine-readable matrix is printed by
+                <code>open-cam capabilities</code> and matches actual behaviour at
+                every entry point.
+            </p>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">02</span>One core, four surfaces</h2>
+                <p>No toolpath rule is reimplemented in a binding.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="matrix">
+                    <thead>
+                        <tr>
+                            <th>Surface</th>
+                            <th>Package</th>
+                            <th>Responsibility</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="name">Rust session</td>
+                            <td class="name">cam-model</td>
+                            <td>Document I/O, editing, validation, toolpaths, G-code and reports.</td>
+                        </tr>
+                        <tr>
+                            <td class="name">Node-API</td>
+                            <td class="name">cam-napi</td>
+                            <td>Orthogonal functions over the session; each returns JSON.</td>
+                        </tr>
+                        <tr>
+                            <td class="name">TypeScript SDK</td>
+                            <td class="name">@wae/open-cam</td>
+                            <td><code>new OpenCAM()</code> session, <code>CamDocument</code> documents, atomic save.</td>
+                        </tr>
+                        <tr>
+                            <td class="name">CLI</td>
+                            <td class="name">open-cam</td>
+                            <td>Argument parsing, JSON output and exit codes <code>0</code> / <code>1</code> / <code>2</code> only.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">03</span>Workflow</h2>
+                <p>Declare, validate, generate, export. Every edit writes the document atomically.</p>
+            </div>
+            <ol class="flow">
+                <li class="flow-step">
+                    <span class="flow-index">01</span>
+                    <h3>Declare</h3>
+                    <p>Create an <code>.ocam</code> file with a stock, tools and operations.</p>
+                    <span class="chip chip--available">available</span>
+                </li>
+                <li class="flow-step">
+                    <span class="flow-index">02</span>
+                    <h3>Validate</h3>
+                    <p>Check tool geometry, depth, stepover and every hole against the stock.</p>
+                    <span class="chip chip--available">available</span>
+                </li>
+                <li class="flow-step">
+                    <span class="flow-index">03</span>
+                    <h3>Generate</h3>
+                    <p>Expand each operation into rapid, plunge and cut moves with metrics.</p>
+                    <span class="chip chip--available">available</span>
+                </li>
+                <li class="flow-step">
+                    <span class="flow-index">04</span>
+                    <h3>Export</h3>
+                    <p>Write G-code, JSON, CSV or a Markdown report through one atomic writer.</p>
+                    <span class="chip chip--available">available</span>
+                </li>
+            </ol>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">04</span>Deterministic by construction</h2>
+                <p>No timestamps, no randomised ordering, no machine-specific output.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="matrix">
+                    <thead>
+                        <tr>
+                            <th>Rule</th>
+                            <th>Consequence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="name">level_depths</td>
+                            <td class="method">passes end exactly at the requested depth</td>
+                        </tr>
+                        <tr>
+                            <td class="name">line_positions</td>
+                            <td class="method">rasters always cut both stock edges</td>
+                        </tr>
+                        <tr>
+                            <td class="name">cutter radius</td>
+                            <td class="method">contours offset outward, pockets shrink inward</td>
+                        </tr>
+                        <tr>
+                            <td class="name">post</td>
+                            <td class="method">generic absolute millimetre mill, <code>G81</code>/<code>G83</code> cycles</td>
+                        </tr>
+                        <tr>
+                            <td class="name">reports</td>
+                            <td class="method">byte-identical on repeated runs</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">05</span>Scope</h2>
+                <p>A narrow CAM kernel with an explicit boundary.</p>
+            </div>
+            <div class="grid-2">
+                <article class="card scope-card scope-card--in">
+                    <span class="chip chip--available">in scope</span>
+                    <h3>Implemented today</h3>
+                    <ul>
+                        <li>Rectangular stock in millimetres</li>
+                        <li>Tool table with spindle and cutting/plunge feeds</li>
+                        <li>Raster facing of the stock top</li>
+                        <li>Outside rectangular profiling with cutter-radius offset</li>
+                        <li>Rectangular pocket clearing with raster lines</li>
+                        <li>Drilling with <code>G81</code> and peck <code>G83</code></li>
+                        <li>Multi-pass Z depth and configurable stepover</li>
+                        <li>Toolpath metrics and cycle-time estimate</li>
+                        <li>G-code, JSON, CSV and Markdown export</li>
+                    </ul>
+                </article>
+                <article class="card scope-card scope-card--out">
+                    <span class="chip chip--blocked">out of scope</span>
+                    <h3>Rejected, not approximated</h3>
+                    <ul>
+                        <li>3D surfacing and STL/solid input</li>
+                        <li>Adaptive or trochoidal clearing</li>
+                        <li>Turning and mill-turn</li>
+                        <li>Four-axis and five-axis work</li>
+                        <li>STEP and DXF import</li>
+                        <li>Vendor post-processors</li>
+                        <li>Graphical toolpath viewport</li>
+                    </ul>
+                </article>
+            </div>
+        </section>
+
+        <section class="status-band">
+            <div>
+                <span class="eyebrow">Build status</span>
+                <h2>The kernel is real. The interface is the terminal.</h2>
+                <p>
+                    Create, edit, validate, generate and export a job today. Read
+                    the toolpath report to check every move, then run the program
+                    or inspect the Markdown summary. Each unimplemented route
+                    fails with <code>capability/not-implemented</code> and exit
+                    code <code>2</code>.
+                </p>
+            </div>
+            <Link to="RoadmapPage" class="btn btn--ghost">Read the gate log</Link>
+        </section>
+
+        <p class="cta-line">
+            Want the detailed surface?
+            <Link to="FeaturesPage">Read the feature index</Link>
+            .
+        </p>
+    </SiteShell>
+</template>
+
+<style>
+.hero {
+    display: grid;
+    grid-template-columns: 1.06fr 0.94fr;
+    gap: 40px;
+    align-items: start;
+    padding: 26px 0 4px;
+}
+
+.hero h1 {
+    margin: 14px 0 16px;
+    font-size: 35px;
+}
+
+.hero__sub {
+    max-width: 560px;
+    margin: 0 0 22px;
+    color: var(--cam-muted);
+    font-size: 15.5px;
+}
+
+.spec {
+    margin: 0 0 24px;
+    border-top: 1px solid var(--cam-line);
+}
+
+.spec__row {
+    display: grid;
+    grid-template-columns: 104px 1fr;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--cam-line);
+}
+
+.spec dt {
+    color: var(--cam-muted);
+    font-family: var(--cam-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding-top: 2px;
+}
+
+.spec dd {
+    margin: 0;
+    font-family: var(--cam-mono);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.hero__cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.sheet {
+    border: 1px solid var(--cam-line-strong);
+    background: var(--cam-surface);
+    box-shadow: 6px 6px 0 rgba(16, 23, 28, 0.06);
+}
+
+.sheet__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 9px;
+    border-bottom: 1px solid var(--cam-line-strong);
+    background: var(--cam-surface-2);
+    color: var(--cam-muted);
+    font-family: var(--cam-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.sheet__no {
+    color: var(--cam-ink);
+    font-weight: 600;
+}
+
+.sheet__rev {
+    margin-left: auto;
+    padding: 0 5px;
+    border: 1px solid var(--cam-line-strong);
+    background: var(--cam-surface);
+    color: var(--cam-ink);
+}
+
+.draw {
+    padding: 12px 8px 8px;
+    border-bottom: 1px solid var(--cam-line);
+    background:
+        linear-gradient(to right, rgba(16, 23, 28, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(16, 23, 28, 0.05) 1px, transparent 1px);
+    background-size: 12px 12px;
+}
+
+.draw__canvas {
+    position: relative;
+    width: 280px;
+    height: 196px;
+    margin: 0 auto;
+}
+
+.stock {
+    position: absolute;
+    left: 20px;
+    top: 20px;
+    width: 240px;
+    height: 150px;
+    border: 1px solid var(--cam-ink);
+    background: rgba(255, 255, 255, 0.55);
+}
+
+.raster {
+    position: absolute;
+    left: 20px;
+    width: 240px;
+    height: 1px;
+    background: var(--cam-accent);
+    opacity: 0.75;
+}
+
+.hole {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--cam-stop);
+    border-radius: 50%;
+    background: var(--cam-stop-soft);
+}
+
+.dim {
+    position: absolute;
+    height: 1px;
+    background: var(--cam-line-strong);
+}
+
+.dim__tick {
+    position: absolute;
+    width: 1px;
+    height: 6px;
+    background: var(--cam-line-strong);
+}
+
+.dim-label {
+    position: absolute;
+    left: 108px;
+    top: 166px;
+    padding: 0 4px;
+    background: var(--cam-surface);
+    color: var(--cam-muted);
+    font-family: var(--cam-mono);
+    font-size: 8px;
+    letter-spacing: 0.06em;
+}
+
+.note {
+    position: absolute;
+    left: 20px;
+    top: 182px;
+    color: var(--cam-muted);
+    font-family: var(--cam-mono);
+    font-size: 8px;
+    letter-spacing: 0.05em;
+}
+
+.readout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid var(--cam-line);
+}
+
+.readout__row {
+    display: grid;
+    grid-template-columns: 1fr auto 56px;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 9px;
+    border-right: 1px solid var(--cam-line);
+    border-bottom: 1px solid var(--cam-line);
+    font-family: var(--cam-mono);
+    font-size: 9px;
+}
+
+.readout__row:nth-child(2n) {
+    border-right: 0;
+}
+
+.readout__row:nth-last-child(-n + 2) {
+    border-bottom: 0;
+}
+
+.readout__row span {
+    color: var(--cam-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.readout__row b {
+    color: var(--cam-ink);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.readout__row i {
+    color: var(--cam-muted);
+    font-size: 8px;
+    font-style: normal;
+    text-align: right;
+}
+
+.readout__row--ok b {
+    color: var(--cam-ok);
+}
+
+.sheet__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 9px;
+    background: var(--cam-surface-2);
+    color: var(--cam-muted);
+    font-family: var(--cam-mono);
+    font-size: 8px;
+    letter-spacing: 0.03em;
+}
+
+.method {
+    color: var(--cam-muted);
+    font-family: var(--cam-mono);
+    font-size: 11px;
+}
+
+.flow {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--cam-line-strong);
+    background: var(--cam-surface);
+}
+
+.flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    padding: 16px 14px;
+    border-right: 1px solid var(--cam-line);
+}
+
+.flow-step:last-child {
+    border-right: 0;
+}
+
+.flow-index {
+    color: var(--cam-accent-ink);
+    font-family: var(--cam-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+}
+
+.flow-step h3 {
+    margin: 0;
+    font-size: 14px;
+}
+
+.flow-step p {
+    flex: 1;
+    margin: 0 0 6px;
+    color: var(--cam-muted);
+    font-size: 12.5px;
+}
+
+.scope-card {
+    padding-top: 16px;
+}
+
+.scope-card--in {
+    border-top-color: var(--cam-ok);
+}
+
+.scope-card--out {
+    border-top-color: var(--cam-stop);
+}
+
+.scope-card ul {
+    margin-top: 8px;
+    padding-left: 18px;
+}
+
+.scope-card li {
+    margin: 4px 0;
+    font-size: 13px;
+}
+
+.status-band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 36px;
+    padding: 18px 20px;
+    border: 1px solid var(--cam-line-strong);
+    border-left: 4px solid var(--cam-accent);
+    background: var(--cam-surface);
+}
+
+.status-band h2 {
+    margin: 6px 0 6px;
+    font-size: 19px;
+}
+
+.status-band p {
+    max-width: 720px;
+    margin: 0;
+    color: var(--cam-muted);
+    font-size: 13.5px;
+}
+
+@media (max-width: 980px) {
+    .hero {
+        grid-template-columns: 1fr;
+        gap: 30px;
+    }
+
+    .sheet {
+        max-width: 460px;
+    }
+
+    .flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .flow-step:nth-child(2) {
+        border-right: 0;
+    }
+
+    .flow-step:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--cam-line);
+    }
+}
+
+@media (max-width: 620px) {
+    .hero h1 {
+        font-size: 27px;
+    }
+
+    .spec__row {
+        grid-template-columns: 1fr;
+        gap: 1px;
+    }
+
+    .flow {
+        grid-template-columns: 1fr;
+    }
+
+    .flow-step {
+        border-right: 0;
+        border-bottom: 1px solid var(--cam-line);
+    }
+
+    .flow-step:last-child {
+        border-bottom: 0;
+    }
+}
+</style>
+
+<script client>
+const CAPABILITY_ROWS = [
+    { code: "FACE", capability: "Raster facing", method: "zig-zag over the stock top", status: "available" },
+    { code: "CONTOUR", capability: "Outside profile", method: "rectangle offset by cutter radius", status: "available" },
+    { code: "POCKET", capability: "Rectangular pocket", method: "raster inside the shrunk boundary", status: "available" },
+    { code: "DRILL", capability: "Drilling", method: "G81 cycle, G83 with peck", status: "available" },
+    { code: "PASS", capability: "Multi-pass depth", method: "stepdown levels ending at depth", status: "available" },
+    { code: "REPORT", capability: "Toolpath report", method: "moves, lengths, cycle time", status: "available" },
+    { code: "POST", capability: "Generic mill post", method: "G21 G90 G17 G94 absolute", status: "available" },
+    { code: "SURF", capability: "3D surfacing", method: "not implemented", status: "blocked" },
+    { code: "ADAPT", capability: "Adaptive clearing", method: "not implemented", status: "blocked" },
+    { code: "TURN", capability: "Turning", method: "not implemented", status: "blocked" },
+    { code: "AXIS4", capability: "Four-axis work", method: "not implemented", status: "blocked" },
+    { code: "STEP", capability: "STEP / DXF import", method: "not implemented", status: "blocked" },
+];
+
+export default class IndexPage {
+    public capabilityRows: typeof CAPABILITY_ROWS = CAPABILITY_ROWS;
+    public rasterRows = [44, 62, 80, 98, 116, 134, 152];
+    public moves = "184";
+    public cutLength = "12 480";
+    public cycleTime = "742.6";
+
+    static meta() {
+        return {
+            title: "OpenCAM - deterministic 2.5-axis toolpaths and G-code",
+            description:
+                "OpenCAM keeps one .ocam document for facing, contouring, pocketing and drilling, with deterministic toolpaths, G-code and machine-readable reports.",
+        };
+    }
+
+    statusChip(status: string) {
+        if (status === "available") return "chip chip--available";
+        if (status === "limited") return "chip chip--limited";
+        return "chip chip--blocked";
+    }
+}
+</script>

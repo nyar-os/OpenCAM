@@ -1,0 +1,181 @@
+<template>
+    <SiteShell page="features">
+        <header class="page-head">
+            <span class="eyebrow">Feature index</span>
+            <h1>What OpenCAM generates</h1>
+            <p class="lead">
+                Four strategies, one document and one deterministic writer. Each
+                row below is backed by a Rust test in
+                <code>projects/crates/cam-model/tests/</code>.
+            </p>
+        </header>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">01</span>Strategies</h2>
+                <p>Geometry is checked against the stock before a document is saved.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="matrix">
+                    <thead>
+                        <tr>
+                            <th>Kind</th>
+                            <th>Geometry</th>
+                            <th>Path</th>
+                            <th>Default stepover</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="name">face</td>
+                            <td>whole stock top</td>
+                            <td>zig-zag raster across X, stepping in Y</td>
+                            <td class="num">0.7 × diameter</td>
+                        </tr>
+                        <tr>
+                            <td class="name">contour</td>
+                            <td><code>x, y, width, height</code></td>
+                            <td>closed rectangle offset outward by <code>diameter / 2</code></td>
+                            <td class="num">—</td>
+                        </tr>
+                        <tr>
+                            <td class="name">pocket</td>
+                            <td><code>x, y, width, height</code></td>
+                            <td>zig-zag raster inside the shrunk boundary</td>
+                            <td class="num">0.6 × diameter</td>
+                        </tr>
+                        <tr>
+                            <td class="name">drill</td>
+                            <td><code>holes: [{ x, y }]</code></td>
+                            <td>rapid, plunge, retract per hole; <code>G81</code>/<code>G83</code></td>
+                            <td class="num">—</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="table-note">
+                <code>stepdown</code> is the maximum depth of one Z pass. A pass at
+                the requested final depth is always included and never duplicated.
+            </p>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">02</span>Document fields</h2>
+                <p>One flat JSON object, stable keys, camelCase.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="matrix">
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>Type</th>
+                            <th>Meaning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="name">stock</td><td>object</td><td><code>width</code>, <code>depth</code>, <code>height</code> in millimetres</td></tr>
+                        <tr><td class="name">tools[]</td><td>array</td><td>id, number, diameter, flutes, spindle, feed, plungeFeed</td></tr>
+                        <tr><td class="name">operations[].kind</td><td>enum</td><td><code>face</code>, <code>contour</code>, <code>pocket</code>, <code>drill</code></td></tr>
+                        <tr><td class="name">operations[].depth</td><td>number</td><td>total depth below the stock top</td></tr>
+                        <tr><td class="name">operations[].stepdown</td><td>number</td><td>maximum cut per Z pass</td></tr>
+                        <tr><td class="name">operations[].stepover</td><td>number | null</td><td>raster spacing; null selects the kind default</td></tr>
+                        <tr><td class="name">operations[].peck</td><td>number | null</td><td>drill peck increment; null uses one plunge</td></tr>
+                        <tr><td class="name">revision</td><td>number</td><td>monotonic edit counter, never decreases</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">03</span>Reports and program</h2>
+                <p>Every output is deterministic and written atomically.</p>
+            </div>
+            <div class="grid-2">
+                <article class="card">
+                    <span class="chip chip--available">toolpaths</span>
+                    <h3>Explicit moves</h3>
+                    <p>
+                        The report lists rapid, plunge and cut segments with from
+                        and to points, length and feed, plus total cutting length,
+                        rapid length and estimated cycle time.
+                    </p>
+                </article>
+                <article class="card">
+                    <span class="chip chip--available">gcode</span>
+                    <h3>Generic mill post</h3>
+                    <p>
+                        <code>%</code>, <code>G21 G90 G17 G94</code>, per-operation
+                        <code>T&lt;n&gt; M6</code> and <code>S&lt;rpm&gt; M3</code>,
+                        drilling cycles cancelled with <code>G80</code>, and
+                        <code>M30</code> at the end.
+                    </p>
+                </article>
+                <article class="card">
+                    <span class="chip chip--available">json / csv</span>
+                    <h3>Machine-readable</h3>
+                    <p>
+                        <code>json</code> mirrors the toolpath report; <code>csv</code>
+                        gives one row per move so a spreadsheet or script can audit
+                        every coordinate.
+                    </p>
+                </article>
+                <article class="card">
+                    <span class="chip chip--available">md</span>
+                    <h3>Human summary</h3>
+                    <p>
+                        Stock, tools, operations, cut length and cycle time in one
+                        Markdown file with no timestamps, so repeated exports are
+                        byte-identical.
+                    </p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2><span class="section-index">04</span>Errors</h2>
+                <p>Stable codes, comparable without parsing prose.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="matrix">
+                    <thead>
+                        <tr><th>Code</th><th>When</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="name">tool/in-use</td><td>removing a tool still referenced by an operation</td></tr>
+                        <tr><td class="name">operation/unknown-tool</td><td>an operation names a tool that does not exist</td></tr>
+                        <tr><td class="name">path/outside-stock</td><td>a rectangle, contour offset or hole leaves the stock</td></tr>
+                        <tr><td class="name">operation/invalid</td><td>depth, stepdown, stepover or pocket width is invalid</td></tr>
+                        <tr><td class="name">capability/not-implemented</td><td>a declared-but-unbuilt route, exit code 2</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <p class="cta-line">
+            <Link to="IndexPage">Back to the overview</Link>
+            ·
+            <Link to="RoadmapPage">Read the gate log</Link>
+        </p>
+    </SiteShell>
+</template>
+
+<style>
+.lead {
+    max-width: 720px;
+}
+</style>
+
+<script client>
+export default class FeaturesPage {
+    static meta() {
+        return {
+            title: "OpenCAM feature index",
+            description:
+                "Facing, contouring, pocketing and drilling, the .ocam document fields, deterministic reports and stable error codes.",
+        };
+    }
+}
+</script>
