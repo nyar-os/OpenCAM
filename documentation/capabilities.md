@@ -15,6 +15,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `face` raster facing | ✅ supported |
 | `contour` outside profile, cutter-radius offset | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
+| `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | multi-pass Z depth (`stepdown`) | ✅ supported |
@@ -45,7 +46,16 @@ The machine-readable version is printed by `open-cam capabilities` and by
 5. **Pocket.** The raster runs between `x + r … x + width − r` and
    `y + r … y + height − r`; the validator rejects a pocket narrower than the
    tool so the shrunk rectangle can never invert.
-6. **Island-aware pocket.** Every island is expanded by the cutter radius. On
+6. **Spiral pocket.** The first closed ring is the pocket shrunk by the cutter
+   radius; every next ring is inset one `stepover` on all four sides. Rings are
+   emitted until the uncut core inside a ring is no wider or taller than the
+   tool diameter; at that point the opposing tool passes overlap and clear the
+   core, so no further closed ring is needed. Rings close at the cutting feed and
+   the cutter advances to the next ring at the cutting feed without lifting. The
+   report adds `strategy` and `loopCount` for spiral operations only; `loopCount`
+   counts closed loops over every depth level, and cut/rapid length and time come
+   from the generated moves. Islands are not supported by `spiral`.
+7. **Island-aware pocket.** Every island is expanded by the cutter radius. On
    each raster line the expanded islands become keep-out intervals that split
    the line into cut spans; only spans outside every keep-out zone are cut, so
    every cutting point — including the span endpoints — stays at least `r` from
@@ -53,10 +63,10 @@ The machine-readable version is printed by `open-cam capabilities` and by
    keep-out zone and plunges again on the far side. The report records
    `islandCount`, `skippedLength` and `skippedSegments`; all three are `0` when
    an operation has no islands.
-7. **Drilling.** Each hole is a rapid to the centre, a plunge to
+8. **Drilling.** Each hole is a rapid to the centre, a plunge to
    `height − depth`, and a rapid retract. G-code uses `G81` (or `G83` with `Q` for
    peck) at the clearance plane `R` and cancels the cycle with `G80`.
-8. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+9. **Metrics.** Cutting length and time use the cutting feed; rapid length and
    time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
 ## G-code
@@ -75,13 +85,14 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, geometry, holes or peck are invalid |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes or peck are invalid |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
 | `operation/island-outside-pocket` | an island is not fully inside its pocket |
 | `operation/island-too-close` | an island expanded by the cutter radius does not fit inside the pocket shrunk by the cutter radius |
 | `operation/island-overlap` | two expanded islands overlap, so the cutter cannot pass between them |
+| `operation/strategy-island` | a `spiral` pocket declares islands, which the strategy does not support |
 | `path/outside-stock` | a profile, pocket or hole leaves the stock |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
@@ -93,6 +104,7 @@ outside the stock) do not make `ok` false.
 |------|---------|
 | `tests/toolpath.rs` | depth levels, closed contour, pocket containment, drill plunges, determinism |
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
+| `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -100,7 +112,10 @@ outside the stock) do not make `ok` false.
 
 ## Limitations
 
-- Rasters are axis-aligned; there is no trochoidal or adaptive strategy.
+- Rasters are axis-aligned and spiral pockets are concentric rectangles; there
+  is no trochoidal, adaptive or arc-following strategy.
+- Spiral pockets do not support islands and reject them with
+  `operation/strategy-island`; use the raster strategy when islands are needed.
 - Pockets are rectangular; islands are rectangles inside the pocket. Arbitrary
   pocket outlines, fillets and adaptive corner clearing are not supported.
 - Contours are rectangles with a constant cutter-radius offset; no arcs or

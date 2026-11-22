@@ -52,6 +52,7 @@ A tool referenced by an operation reports `tool/in-use`; an unknown id reports
 ```shell
 open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--stepdown <d>] [--stepover <d>] [--name <name>]
+                      [--strategy raster|spiral]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                       [--holes <x,y;x,y>] [--peck <d>]
                       [--island <x,y,w,h>]...
@@ -61,12 +62,20 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius |
-| `pocket` | `--x --y --width --height`, raster inside the cutter radius, repeatable `--island` |
+| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, repeatable `--island` |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` |
 
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
 the tool diameter for facing and 60 % for pocketing. The operation is validated
 against the stock before it is saved.
+
+`--strategy raster|spiral` selects the pocket clearing pattern and defaults to
+`raster`. `spiral` walks concentric closed rectangles from the pocket shrunk by
+the cutter radius inward, one `stepover` per ring, and stops once the uncut core
+inside a ring is no wider or taller than the tool diameter (opposite passes then
+overlap). Rings advance at the cutting feed without retracting. `spiral` does
+not support islands: a pocket with `--island` and `--strategy spiral` reports
+`operation/strategy-island`. An unknown value reports `operation/invalid`.
 
 `--island x,y,w,h` is repeatable and only valid for `pocket`. Each island is a
 rectangle in the pocket's coordinate frame; the tool path skips every raster
@@ -100,7 +109,9 @@ Prints the toolpath report and optionally writes the same JSON. The report
 contains `safeZ`, `rapidFeed`, total `cutLength`, `rapidLength`,
 `estimatedSeconds` and one entry per operation with every move. Each operation
 also reports `islandCount`, `skippedLength` and `skippedSegments`; they are `0`
-for operations without islands.
+for operations without islands. A spiral pocket additionally reports `strategy`
+(`"spiral"`) and `loopCount`, the number of closed loops emitted over every
+depth level; raster operations keep the previous shape and add no fields.
 
 ## gcode
 
@@ -151,6 +162,8 @@ open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 
 open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40 \
     --island 40,26,20,20
+open-cam operation add bracket.ocam --id spiral --kind pocket --tool t6 \
+    --depth 3 --stepdown 1 --strategy spiral --x 20 --y 20 --width 60 --height 40
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam gcode bracket.ocam --out bracket.nc

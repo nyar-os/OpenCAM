@@ -14,7 +14,8 @@ The engine implements four strategies:
 
 - **face** — raster the whole stock top with a controllable stepover;
 - **contour** — mill an outside rectangular profile, offset by the cutter radius;
-- **pocket** — clear a rectangular pocket with a raster inside the cutter radius;
+- **pocket** — clear a rectangular pocket with a raster or a spiral inside the
+  cutter radius;
 - **drill** — emit `G81`/`G83` cycles over a list of hole centres.
 
 Every strategy supports multi-pass Z depth through `stepdown`; facing and
@@ -91,7 +92,8 @@ requested capability is not implemented.
 - **Deterministic output** — no timestamps; identical documents produce
   identical toolpaths and G-code.
 - **Explicit geometry** — contour offsets by the cutter radius, pocket rasters
-  stay inside the shrunk boundary, drill holes are checked against the stock.
+  and spirals stay inside the shrunk boundary, drill holes are checked against
+  the stock.
 - **Honest validation** — a document that cannot be machined is rejected before
   it is written; each finding carries a stable code.
 - **Machine-readable reports** — toolpaths as JSON, moves as CSV, a Markdown

@@ -23,6 +23,7 @@ open-cam tool add <file> --id <id> --diameter <d> --spindle <rpm> --feed <f>
 open-cam tool remove <file> --id <id>
 open-cam operation add <file> --id <id> --kind face|contour|pocket|drill
                      --tool <id> --depth <d> [--stepdown <d>] [--stepover <d>]
+                     [--strategy raster|spiral]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
 open-cam operation remove <file> --id <id>
@@ -107,11 +108,13 @@ return the document summary as written to disk, so `revision`, `tools` and
 
 Contour and pocket use `x`, `y`, `width`, `height`; drill uses `holes` and an
 optional `peck`. A pocket may also carry `islands`, an array of
-`{ x, y, width, height }` rectangles that the raster clears around. `stepdown`
+`{ x, y, width, height }` rectangles that the raster clears around. A pocket
+takes an optional `strategy`: `raster` (the default) or `spiral`, which walks
+concentric closed rectangles inward and does not support islands. `stepdown`
 is the maximum cut per Z pass and `stepover` defaults to 70 % of the tool
 diameter for facing and 60 % for pocketing. The toolpath report reports
 `islandCount`, `skippedLength` and `skippedSegments` per operation, all `0`
-without islands.
+without islands, plus `strategy` and `loopCount` for a spiral pocket.
 
 ## Constraints
 
