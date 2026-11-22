@@ -1,0 +1,30 @@
+{
+    "cli": {
+        "intro": "open-cam - OpenCAM 2.5-axis toolpath and G-code generator (millimetres)",
+        "usage": [
+            "open-cam create <file.ocam>",
+            "open-cam stock <file> --width <w> --depth <d> --height <h>",
+            "open-cam tool add <file> --id <id> --diameter <d> --spindle <rpm> --feed <f> [--flutes <n>] [--plunge <f>] [--number <n>] [--name <name>]",
+            "open-cam tool remove <file> --id <id>",
+            "open-cam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id> --depth <d> [--stepdown <d>] [--stepover <d>] [--x <x>] [--y <y>] [--width <w>] [--height <h>] [--holes <x,y;x,y>] [--peck <d>]",
+            "open-cam operation remove <file> --id <id>",
+            "open-cam validate <file>",
+            "open-cam toolpaths <file> [--out report.json]",
+            "open-cam gcode <file> [--out program.nc]",
+            "open-cam export <file> --format gcode|json|csv|md --out <path>",
+            "open-cam report <file>",
+            "open-cam capabilities",
+            "open-cam version"
+        ],
+        "exit": "Exit codes: 0 success, 1 input/validation error, 2 capability not implemented",
+        "message": {},
+        "error": {
+            "missingArgument": "missing argument; usage: open-cam {usage}",
+            "missingOption": "option `{option}` is required",
+            "missingValue": "option `{option}` needs a value",
+            "unknownOption": "unknown option `{option}`",
+            "invalidNumber": "option `{option}` is not a number: `{value}`",
+            "unknownFormat": "unknown export format `{format}`; only gcode, json, csv or md is supported"
+        }
+    }
+}

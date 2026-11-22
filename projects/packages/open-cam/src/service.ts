@@ -1,0 +1,138 @@
+/**
+ * Orthogonal native operations.
+ *
+ * One function performs one operation and returns data; argument parsing, help
+ * text and exit codes belong to `cli.ts`. Every function forwards to the
+ * optional native addon and decodes one JSON string.
+ */
+
+import { NotImplementedError, OpenCAMError, errorCodes, type OpenCAMErrorCode } from './errors.js';
+import { nativeBinding } from './native.js';
+import type {
+    DocumentSummary,
+    ExportFormat,
+    ExportReport,
+    OperationRequest,
+    Report,
+    StockRequest,
+    ToolRequest,
+    ToolpathReport,
+    ValidationReport,
+} from './types.js';
+
+const knownCodes = new Set<string>(errorCodes);
+
+function binding(feature: string) {
+    const native = nativeBinding();
+    if (!native) {
+        throw new NotImplementedError(feature);
+    }
+    return native;
+}
+
+function decode<T>(work: () => string): T {
+    try {
+        return JSON.parse(work()) as T;
+    } catch (error) {
+        throw translate(error);
+    }
+}
+
+function translate(error: unknown): OpenCAMError {
+    if (error instanceof OpenCAMError) {
+        return error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    const separator = message.indexOf(': ');
+    const code = separator > 0 ? message.slice(0, separator) : '';
+    if (knownCodes.has(code)) {
+        return new OpenCAMError(code as OpenCAMErrorCode, message.slice(separator + 2));
+    }
+    return new OpenCAMError('native/error', message, { cause: error });
+}
+
+/** Reads the version of the installed addon. */
+export function version(): string {
+    return decode<string>(() => binding('version').version());
+}
+
+/** Reads the capability matrix of the installed addon. */
+export function capabilities() {
+    const matrix = decode<{ operations: Record<string, 'supported' | 'unsupported'>; io: Record<string, 'supported' | 'unsupported'> }>(
+        () => binding('capabilities').capabilities(),
+    );
+    return {
+        engine: { package: 'open-cam-napi', version: version() },
+        operations: matrix.operations,
+        io: matrix.io,
+    };
+}
+
+/** Creates an empty document and returns its summary. */
+export function create(path: string): DocumentSummary {
+    return decode<DocumentSummary>(() => binding('create').create(path));
+}
+
+/** Opens a document and returns its summary. */
+export function open(path: string): DocumentSummary {
+    return decode<DocumentSummary>(() => binding('open').open(path));
+}
+
+/** Writes a document to `target`, or in place when `target` is undefined. */
+export function save(path: string, target?: string): DocumentSummary {
+    return decode<DocumentSummary>(() =>
+        target === undefined ? binding('save').save(path) : binding('save').save(path, target),
+    );
+}
+
+/** Replaces the stock block and returns the updated summary. */
+export function setStock(path: string, request: StockRequest): DocumentSummary {
+    return decode<DocumentSummary>(() => binding('stock.set').stock_set(path, JSON.stringify(request)));
+}
+
+/** Adds a tool and returns the updated summary. */
+export function addTool(path: string, request: ToolRequest): DocumentSummary {
+    return decode<DocumentSummary>(() => binding('tool.add').tool_add(path, JSON.stringify(request)));
+}
+
+/** Removes an unused tool and returns the updated summary. */
+export function removeTool(path: string, id: string): DocumentSummary {
+    return decode<DocumentSummary>(() => binding('tool.remove').tool_remove(path, JSON.stringify({ id })));
+}
+
+/** Adds a machining operation and returns the updated summary. */
+export function addOperation(path: string, request: OperationRequest): DocumentSummary {
+    return decode<DocumentSummary>(() => binding('operation.add').operation_add(path, JSON.stringify(request)));
+}
+
+/** Removes an operation and returns the updated summary. */
+export function removeOperation(path: string, id: string): DocumentSummary {
+    return decode<DocumentSummary>(() =>
+        binding('operation.remove').operation_remove(path, JSON.stringify({ id })),
+    );
+}
+
+/** Validates a document. */
+export function validate(path: string): ValidationReport {
+    return decode<ValidationReport>(() => binding('validate').validate(path));
+}
+
+/** Generates the toolpath report of a document. */
+export function toolpaths(path: string): ToolpathReport {
+    return decode<ToolpathReport>(() => binding('toolpaths').toolpaths(path));
+}
+
+/** Renders the G-code program of a document. */
+export function gcode(path: string): string {
+    return decode<string>(() => binding('gcode').gcode(path));
+}
+
+/** Exports a document as `gcode`, `json`, `csv` or `md`. */
+export function exportDocument(path: string, format: ExportFormat, target: string): ExportReport {
+    return decode<ExportReport>(() => binding('export').export(path, format, target));
+}
+
+/** Returns the full report of a document. */
+export function report(path: string): Report {
+    return decode<Report>(() => binding('report').report(path));
+}

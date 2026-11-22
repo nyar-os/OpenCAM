@@ -1,0 +1,16 @@
+[package]
+name = "open-cam-napi"
+version.workspace = true
+edition = "2021"
+publish = false
+description = "Thin Node-API surface for OpenCAM"
+license = "MPL-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cam-model = { path = "../cam-model" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wae = { workspace = true }
