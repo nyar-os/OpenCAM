@@ -113,7 +113,8 @@ pub fn markdown(document: &CamDocument, report: &ToolpathReport) -> String {
 fn escape(value: &str) -> String {
     if value.contains(',') || value.contains('"') || value.contains('\n') {
         format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
+    }
+    else {
         value.to_string()
     }
 }

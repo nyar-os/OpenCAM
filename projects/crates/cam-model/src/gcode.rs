@@ -30,7 +30,8 @@ fn render_with(document: &CamDocument, report: &ToolpathReport) -> String {
     lines.push(format!("G0 Z{}", number(safe_z)));
 
     for (index, operation) in document.operations.iter().enumerate() {
-        let Some(path) = report.operations.get(index) else {
+        let Some(path) = report.operations.get(index)
+        else {
             continue;
         };
         let tool = document.tools.iter().find(|tool| tool.id == operation.tool);
@@ -57,7 +58,8 @@ fn render_with(document: &CamDocument, report: &ToolpathReport) -> String {
                 }
             }
             lines.push("G80".to_string());
-        } else {
+        }
+        else {
             for segment in &path.segments {
                 let command = match segment.kind {
                     MoveKind::Rapid => "G0",
