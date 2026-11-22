@@ -256,6 +256,29 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` uses finish but only `pocket` supports it", operation.id),
         ));
     }
+    if let Some(dwell) = operation.dwell {
+        if !positive(dwell) {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` dwell must be finite and greater than zero", operation.id),
+            ));
+        }
+        if operation.kind != OperationKind::Drill {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` uses dwell but only `drill` supports it", operation.id),
+            ));
+        }
+        if operation.kind == OperationKind::Drill && operation.peck.is_some() {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!(
+                    "operation `{}` combines dwell with peck, but `G83` has no dwell; remove `peck` or `dwell`",
+                    operation.id
+                ),
+            ));
+        }
+    }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {

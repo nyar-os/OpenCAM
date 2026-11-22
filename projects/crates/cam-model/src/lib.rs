@@ -59,6 +59,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "pocketIslands": "supported",
     "pocketFinish": "supported",
     "drill": "supported",
+    "drillDwell": "supported",
     "engrave": "supported",
     "engraveClosed": "supported",
     "ramp": "supported",

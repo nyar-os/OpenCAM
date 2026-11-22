@@ -55,11 +55,14 @@ fn render_with(document: &CamDocument, report: &ToolpathReport) -> String {
             for hole in &operation.holes {
                 let x = number(hole.x);
                 let y = number(hole.y);
-                match operation.peck {
-                    Some(peck) => {
+                match (operation.peck, operation.dwell) {
+                    (Some(peck), _) => {
                         lines.push(format!("G83 X{x} Y{y} Z{depth} R{retract} Q{} F{feed}", number(peck)));
                     }
-                    None => lines.push(format!("G81 X{x} Y{y} Z{depth} R{retract} F{feed}")),
+                    (None, Some(dwell)) => {
+                        lines.push(format!("G82 X{x} Y{y} Z{depth} R{retract} P{} F{feed}", number(dwell)));
+                    }
+                    (None, None) => lines.push(format!("G81 X{x} Y{y} Z{depth} R{retract} F{feed}")),
                 }
             }
             lines.push("G80".to_string());

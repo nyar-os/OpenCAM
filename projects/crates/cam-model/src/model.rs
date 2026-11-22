@@ -241,8 +241,8 @@ impl TabSettings {
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
-/// `peck` only by `drill`, `path` only by `engrave`, `closed` only by `engrave`,
-/// `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
+/// `peck` and `dwell` only by `drill`, `path` only by `engrave`, `closed` only
+/// by `engrave`, `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
 /// `engrave`, and `finish` only by `pocket`. `strategy` selects the rectangle
 /// clearing pattern: `raster` (the default) or `spiral` (concentric rectangles).
 /// `shape` selects the `contour` or `pocket` outline: `rect` (the default) or
@@ -306,6 +306,13 @@ pub struct Operation {
     /// Peck increment of a `drill` operation; `null` uses a single plunge.
     #[serde(default)]
     pub peck: Option<f64>,
+    /// Bottom-of-hole pause of a `drill` operation, in seconds.
+    ///
+    /// When set, each hole emits a `G82` cycle with `P<dwell>` instead of `G81`.
+    /// `dwell` is machine time, not motion, so it does not change the toolpath
+    /// or the kinematic cycle-time estimate. It cannot be combined with `peck`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dwell: Option<f64>,
     /// Pocket clearing pattern: `raster` (default) or `spiral`.
     ///
     /// Kept as a string so an unknown value is reported as
@@ -356,6 +363,7 @@ impl Operation {
             closed: false,
             islands: Vec::new(),
             peck: None,
+            dwell: None,
             strategy: None,
             shape: None,
             tabs: None,

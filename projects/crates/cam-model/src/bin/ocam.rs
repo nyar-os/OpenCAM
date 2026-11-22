@@ -23,7 +23,7 @@ Usage:
                      [--strategy raster|spiral]
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
-                     [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
+                     [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>] [--island <x,y,w,h>]...
                      [--path <x,y;x,y>] [--tabs <count,width,height>] [--closed] [--finish]
                      (--shape rect|circle applies to contour and pocket; circle uses --width as the diameter)
   ocam operation remove <file> --id <id>
@@ -183,6 +183,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--height",
                     "--holes",
                     "--peck",
+                    "--dwell",
                     "--island",
                     "--path",
                     "--tabs",
@@ -205,6 +206,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             operation.width = values.number_or("--width", 0.0)?;
             operation.height = values.number_or("--height", 0.0)?;
             operation.peck = values.optional_number("--peck")?;
+            operation.dwell = values.optional_number("--dwell")?;
             if let Some(raw) = values.value("--holes") {
                 operation.holes = parse_holes(raw)?;
             }

@@ -189,6 +189,7 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
     operation.width = number_field(&request, "width")?.unwrap_or(0.0);
     operation.height = number_field(&request, "height")?.unwrap_or(0.0);
     operation.peck = number_field(&request, "peck")?;
+    operation.dwell = number_field(&request, "dwell")?;
     operation.strategy = match request.get("strategy") {
         None | Some(Value::Null) => None,
         Some(Value::String(value)) => Some(value.clone()),

@@ -26,7 +26,8 @@ open-cam operation add <file> --id <id> --kind face|contour|pocket|drill
                      [--strategy raster|spiral]
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
-                     [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
+                     [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>]
+                     [--island <x,y,w,h>]...
 open-cam operation remove <file> --id <id>
 open-cam validate <file>
 open-cam toolpaths <file> [--out report.json]
@@ -108,7 +109,9 @@ return the document summary as written to disk, so `revision`, `tools` and
 | `operations` | `face`, `contour`, `pocket` or `drill` |
 
 Contour and pocket use `x`, `y`, `width`, `height`; drill uses `holes` and an
-optional `peck`. A pocket may also carry `islands`, an array of
+optional `peck` or `dwell`. `dwell` is a bottom-of-hole pause in seconds emitted
+as `G82 P<seconds>`, cannot be combined with `peck`, and does not change the
+toolpath or cycle-time estimate. A pocket may also carry `islands`, an array of
 `{ x, y, width, height }` rectangles that the raster clears around. A pocket
 takes an optional `strategy`: `raster` (the default) or `spiral`, which walks
 concentric closed rectangles inward and does not support islands. A pocket also

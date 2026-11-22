@@ -356,8 +356,8 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             'operation add <file>',
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover', '--ramp',
-                '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island', '--path',
-                '--tabs',
+                '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--dwell', '--island',
+                '--path', '--tabs',
             ],
             ['--closed', '--finish'],
             async (document, parsed) => {
@@ -389,6 +389,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         closed: parsed.flags.has('--closed'),
                         islands: parseIslands(parsed.repeated.get('--island') ?? []),
                         peck: number(parsed, '--peck'),
+                        dwell: number(parsed, '--dwell'),
                         tabs: tabs === undefined ? undefined : parseTabs(tabs),
                         finish: parsed.flags.has('--finish') ? true : undefined,
                     }),

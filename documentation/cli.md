@@ -55,7 +55,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--strategy raster|spiral]
                       [--shape rect|circle]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
-                      [--holes <x,y;x,y>] [--peck <d>]
+                      [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>]
                       [--island <x,y,w,h>]...
                       [--path <x,y;x,y>]
                       [--tabs <count,width,height>]
@@ -67,12 +67,21 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle; `--shape circle` cuts a circular outside profile |
 | `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles, optional `--finish` wall loop |
-| `drill` | `--holes "x,y;x,y"`, optional `--peck` |
+| `drill` | `--holes "x,y;x,y"`, optional `--peck` or `--dwell` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
 
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
 the tool diameter for facing and 60 % for pocketing. The operation is validated
 against the stock before it is saved.
+
+`--dwell <seconds>` is an optional bottom-of-hole pause for `drill`. Each hole
+then emits `G82 X.. Y.. Z.. R.. P<seconds> F..` instead of `G81 ...` and the
+cycle is still cancelled with `G80`. The value must be finite and greater than
+zero and may not be combined with `--peck`, because `G83` has no dwell and the
+writer does not approximate it; both cases report `operation/invalid`.
+`--dwell` on any other kind also reports `operation/invalid`. A dwell adds no
+move, so the toolpath and its kinematic cycle time are unchanged; the pause is
+machine time and is not included in the estimate.
 
 `--ramp <mm>` is an optional horizontal length in millimetres, not an angle.
 Without it every Z level starts with a vertical plunge. With it the cutter
@@ -181,7 +190,8 @@ every depth level; a circular pocket reports `shape` (`"circle"`) and
 `shape` (`"circle"`) and no `loopCount`. A wall finish loop is not
 counted in `loopCount`, but its moves are included in `segments`, `cutLength`
 and the cycle time. Raster operations keep the previous shape and add no
-fields.
+fields. A drill `dwell` is a bottom-of-hole pause and does not add a move or
+cycle time.
 
 ## gcode
 
@@ -242,6 +252,8 @@ open-cam operation add bracket.ocam --id logo --kind engrave --tool t2 \
     --depth 0.5 --stepdown 0.25 --path "10,10;40,10;40,30;70,30"
 open-cam operation add bracket.ocam --id border --kind engrave --tool t2 \
     --depth 0.5 --closed --path "10,10;40,10;40,30;10,30"
+open-cam operation add bracket.ocam --id bore --kind drill --tool t6 \
+    --depth 6 --holes "20,20;80,40" --dwell 0.5
 open-cam operation add bracket.ocam --id floor --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40 --finish
 open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \

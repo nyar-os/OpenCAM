@@ -105,6 +105,8 @@ export interface Operation {
     readonly islands?: readonly Island[];
     /** Peck increment of a drill operation; `null` uses a single plunge. */
     readonly peck: number | null;
+    /** Bottom-of-hole pause of a drill operation in seconds; omitted when unset. */
+    readonly dwell?: number;
     /** Pocket clearing pattern; absent means `raster`. */
     readonly strategy?: PocketStrategy;
     /** Contour or pocket outline; absent means `rect`. */
@@ -267,6 +269,8 @@ export interface OperationRequest {
     /** Rectangular islands left standing by a pocket operation. */
     readonly islands?: readonly Island[];
     readonly peck?: number;
+    /** Bottom-of-hole pause in seconds; only `drill` accepts it and it cannot be combined with `peck`. */
+    readonly dwell?: number;
     /** Pocket clearing pattern; `raster` when omitted. */
     readonly strategy?: PocketStrategy;
     /** Contour or pocket outline; `rect` when omitted. `circle` uses `width` as the diameter. */

@@ -22,6 +22,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `pocket` circle (concentric ring) clearing | ✅ supported |
 | `pocket` wall finish pass (`finish`) | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
+| `drill` bottom dwell (`dwell`, `G82`) | ✅ supported |
 | `engrave` along a polyline (no cutter-radius compensation) | ✅ supported |
 | `engrave` closed polyline (`closed`) | ✅ supported |
 | `contour`, `pocket` and `engrave` ramp entry (`ramp`) | ✅ supported |
@@ -98,8 +99,13 @@ The machine-readable version is printed by `open-cam capabilities` and by
    `islandCount`, `skippedLength` and `skippedSegments`; all three are `0` when
    an operation has no islands.
 9. **Drilling.** Each hole is a rapid to the centre, a plunge to
-   `height − depth`, and a rapid retract. G-code uses `G81` (or `G83` with `Q` for
-   peck) at the clearance plane `R` and cancels the cycle with `G80`.
+   `height − depth`, and a rapid retract. G-code uses `G81`, `G82` with `P` for a
+   bottom dwell, or `G83` with `Q` for peck, at the clearance plane `R`, and
+   cancels the cycle with `G80`. `dwell` is a pause in seconds at the bottom of
+   the hole and adds no move, so the toolpath and the kinematic cycle time are
+   unchanged. It is machine time, not motion, and the report does not estimate
+   it. `dwell` applies only to `drill` and cannot be combined with `peck`,
+   because `G83` has no dwell and the writer does not approximate it.
 10. **Engraving.** Every depth level rapids to the first path point at the
     clearance plane, plunges at `plungeFeed` and connects each consecutive pair
     of path points with one cutting move. With `closed: true` the level also
@@ -142,7 +148,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
     `operation/invalid`. `finish: false` or an omitted `finish` keeps the
     clearing output byte-identical.
 13. **Metrics.** Cutting length and time use the cutting feed; rapid length and
-    time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
+    time use a fixed 8000 mm/min traverse. Cycle time is the sum of both. A
+    drill `dwell` is machine time and is not included.
 
 ## G-code
 
@@ -160,7 +167,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for a rectangular `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; a circular contour rejects tabs and reports `operation/invalid`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for a rectangular `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; a circular contour rejects tabs and reports `operation/invalid`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -188,6 +195,7 @@ outside the stock) do not make `ok` false.
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
 | `tests/finish.rs` | no-finish byte identity, one wall loop per level for raster, spiral and circular pockets, wall clearance and depth, invalid kinds and island rejection, cut length and loop count, determinism and round trip |
+| `tests/dwell.rs` | `G82`/`P` and `G80` per hole, no `G4`, no-dwell byte identity, peck and non-drill rejection, invalid values, unchanged toolpath moves, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
