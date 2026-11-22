@@ -97,6 +97,8 @@ export interface Operation {
     readonly holes: readonly Hole[];
     /** Polyline vertices of an engrave operation, connected in order. */
     readonly path?: readonly PathPoint[];
+    /** Closes an engrave polyline back to its first point; absent means open. */
+    readonly closed?: boolean;
     /** Rectangular islands left standing by a pocket operation. */
     readonly islands?: readonly Island[];
     /** Peck increment of a drill operation; `null` uses a single plunge. */
@@ -254,6 +256,8 @@ export interface OperationRequest {
     readonly holes?: readonly Hole[];
     /** Polyline vertices of an engrave operation, connected in order. */
     readonly path?: readonly PathPoint[];
+    /** Closes the engrave polyline back to its first point; `false` when omitted. */
+    readonly closed?: boolean;
     /** Rectangular islands left standing by a pocket operation. */
     readonly islands?: readonly Island[];
     readonly peck?: number;

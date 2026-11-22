@@ -359,7 +359,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                 '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island', '--path',
                 '--tabs',
             ],
-            [],
+            ['--closed'],
             async (document, parsed) => {
                 const depth = requiredNumber(parsed, '--depth');
                 const id = required(parsed, '--id');
@@ -385,6 +385,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         height: number(parsed, '--height') ?? 0,
                         holes: holes === undefined ? [] : parseHoles(holes),
                         path: path === undefined ? [] : parsePath(path),
+                        closed: parsed.flags.has('--closed'),
                         islands: parseIslands(parsed.repeated.get('--island') ?? []),
                         peck: number(parsed, '--peck'),
                         tabs: tabs === undefined ? undefined : parseTabs(tabs),

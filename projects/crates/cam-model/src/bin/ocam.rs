@@ -24,7 +24,7 @@ Usage:
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
-                     [--path <x,y;x,y>] [--tabs <count,width,height>]
+                     [--path <x,y;x,y>] [--tabs <count,width,height>] [--closed]
   ocam operation remove <file> --id <id>
   ocam validate <file>
   ocam toolpaths <file> [--out report.json]
@@ -185,7 +185,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--path",
                     "--tabs",
                 ],
-                &[],
+                &["--closed"],
             )?;
             let id = values.require("--id")?;
             let kind: OperationKind = values.require("--kind")?.parse()?;
@@ -211,6 +211,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             if let Some(raw) = values.value("--tabs") {
                 operation.tabs = Some(parse_tabs(raw)?);
             }
+            operation.closed = values.value("--closed").is_some();
             operation.islands = values.values("--island").iter().map(|raw| parse_island(raw)).collect::<Result<_, _>>()?;
             print_json(&session(file)?.add_operation(operation)?)
         }

@@ -230,6 +230,12 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` uses tabs but only `contour` supports them", operation.id),
         ));
     }
+    if operation.closed && operation.kind != OperationKind::Engrave {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` uses closed but only `engrave` supports it", operation.id),
+        ));
+    }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {
@@ -416,7 +422,9 @@ fn check_tabs(operation: &Operation, tabs: TabSettings, issues: &mut Vec<Issue>)
 ///
 /// A polyline needs at least two points, every point must lie on the stock and
 /// adjacent points may not coincide. A repeated adjacent point is rejected
-/// rather than skipped, so a caller never loses a vertex silently.
+/// rather than skipped, so a caller never loses a vertex silently. A closed
+/// polyline is rejected when its last point already coincides with the first,
+/// because the generator appends that closing move itself.
 fn validate_polyline(operation: &Operation, document: &CamDocument, issues: &mut Vec<Issue>) {
     if operation.path.len() < 2 {
         issues.push(Issue::error("operation/invalid", format!("operation `{}` needs at least two path points", operation.id)));
@@ -447,6 +455,21 @@ fn validate_polyline(operation: &Operation, document: &CamDocument, issues: &mut
                     operation.id,
                     index,
                     index + 1
+                ),
+            ));
+        }
+    }
+    if operation.closed && operation.path.len() > 2 {
+        let first = operation.path[0];
+        let last = operation.path[operation.path.len() - 1];
+        let dx = last.x - first.x;
+        let dy = last.y - first.y;
+        if (dx * dx + dy * dy).sqrt() <= EPSILON {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!(
+                    "operation `{}` is closed and its last path point coincides with the first; remove the duplicate point",
+                    operation.id
                 ),
             ));
         }

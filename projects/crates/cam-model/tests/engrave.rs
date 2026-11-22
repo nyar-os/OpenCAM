@@ -139,3 +139,126 @@ fn an_empty_path_is_not_serialized() {
     let restored: Operation = serde_json::from_value(json).expect("deserialise");
     assert_eq!(restored.path, with_path.path);
 }
+
+/// Closed square `(10, 10) -> (40, 10) -> (40, 40) -> (10, 40) -> (10, 10)`:
+/// four 30 mm sides, so the closed loop cuts 120 mm per level and the added
+/// closing side is 30 mm.
+fn closed_square() -> Operation {
+    let mut operation = Operation::new("frame", OperationKind::Engrave, "t6", 2.0, 2.0);
+    operation.path =
+        vec![PathPoint::new(10.0, 10.0), PathPoint::new(40.0, 10.0), PathPoint::new(40.0, 40.0), PathPoint::new(10.0, 40.0)];
+    operation.closed = true;
+    operation
+}
+
+#[test]
+fn closed_engrave_cuts_the_square_perimeter() {
+    let report = generate_toolpaths(&document(closed_square())).expect("valid closed engrave");
+    let path = &report.operations[0];
+
+    let cuts: Vec<_> = path.segments.iter().filter(|segment| segment.kind == MoveKind::Cut).collect();
+    assert_eq!(cuts.len(), 4);
+    let cut_xy: f64 = cuts.iter().map(|segment| segment.from.distance_to(segment.to)).sum();
+    assert!((cut_xy - 120.0).abs() < 1e-9);
+
+    let plunges: f64 =
+        path.segments.iter().filter(|segment| segment.kind == MoveKind::Plunge).map(|segment| segment.length).sum();
+    assert!((path.cut_length - (120.0 + plunges)).abs() < 1e-9);
+
+    let last = cuts.last().expect("last cut");
+    assert!((last.to.x - 10.0).abs() < 1e-9);
+    assert!((last.to.y - 10.0).abs() < 1e-9);
+    assert!((last.to.z - 8.0).abs() < 1e-9);
+}
+
+#[test]
+fn closed_engrave_adds_one_move_per_level() {
+    let mut open = closed_square();
+    open.closed = false;
+    let closed = closed_square();
+    let open_report = generate_toolpaths(&document(open)).expect("valid open engrave");
+    let closed_report = generate_toolpaths(&document(closed)).expect("valid closed engrave");
+    let open_path = &open_report.operations[0];
+    let closed_path = &closed_report.operations[0];
+
+    assert_eq!(open_path.segments.iter().filter(|segment| segment.kind == MoveKind::Cut).count(), 3);
+    assert_eq!(closed_path.segments.iter().filter(|segment| segment.kind == MoveKind::Cut).count(), 4);
+    assert_eq!(closed_path.moves - open_path.moves, 1);
+    assert!((closed_path.cut_length - open_path.cut_length - 30.0).abs() < 1e-9);
+
+    let mut open_levels = closed_square();
+    open_levels.closed = false;
+    open_levels.depth = 6.0;
+    open_levels.stepdown = 2.0;
+    let mut closed_levels = closed_square();
+    closed_levels.depth = 6.0;
+    closed_levels.stepdown = 2.0;
+    let open_levels = generate_toolpaths(&document(open_levels)).expect("valid open engrave");
+    let closed_levels = generate_toolpaths(&document(closed_levels)).expect("valid closed engrave");
+    let open_path = &open_levels.operations[0];
+    let closed_path = &closed_levels.operations[0];
+
+    assert_eq!(open_path.segments.iter().filter(|segment| segment.kind == MoveKind::Cut).count(), 9);
+    assert_eq!(closed_path.segments.iter().filter(|segment| segment.kind == MoveKind::Cut).count(), 12);
+    assert!((closed_path.cut_length - open_path.cut_length - 90.0).abs() < 1e-9);
+}
+
+#[test]
+fn closed_engrave_adds_one_gcode_line_per_level() {
+    let mut open = closed_square();
+    open.closed = false;
+    let closed = closed_square();
+
+    let open_lines = render_gcode(&document(open)).expect("gcode").lines().count();
+    let closed_lines = render_gcode(&document(closed)).expect("gcode").lines().count();
+    assert_eq!(closed_lines, open_lines + 1);
+}
+
+#[test]
+fn closed_engrave_rejects_a_last_point_on_the_first() {
+    let mut operation = closed_square();
+    operation.path.push(PathPoint::new(10.0, 10.0));
+    let report = validate(&document(operation));
+    assert!(!report.ok);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "operation/invalid" && issue.message.contains("coincides with the first"))
+    );
+}
+
+#[test]
+fn closed_is_engrave_only() {
+    let mut operation = Operation::new("pocket", OperationKind::Pocket, "t6", 2.0, 1.0);
+    operation.x = 10.0;
+    operation.y = 10.0;
+    operation.width = 40.0;
+    operation.height = 30.0;
+    operation.closed = true;
+    let report = validate(&document(operation));
+    assert!(!report.ok);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "operation/invalid" && issue.message.contains("only `engrave` supports it"))
+    );
+}
+
+#[test]
+fn an_open_engrave_keeps_the_previous_bytes() {
+    let document = document(engrave());
+    let text = serde_json::to_string(&document).expect("serialise");
+    let expected = concat!(
+        "{\"format\":\"open-cam\",\"version\":1,\"revision\":0,\"units\":\"mm\",",
+        "\"stock\":{\"width\":100.0,\"depth\":80.0,\"height\":10.0},",
+        "\"tools\":[{\"id\":\"t6\",\"name\":\"6 mm flat\",\"number\":7,\"diameter\":6.0,\"flutes\":2,",
+        "\"spindle\":12000.0,\"feed\":1200.0,\"plungeFeed\":300.0}],",
+        "\"operations\":[{\"id\":\"logo\",\"name\":\"\",\"kind\":\"engrave\",\"tool\":\"t6\",\"depth\":2.0,",
+        "\"stepdown\":2.0,\"stepover\":null,\"x\":0.0,\"y\":0.0,\"width\":0.0,\"height\":0.0,\"holes\":[],",
+        "\"path\":[{\"x\":10.0,\"y\":10.0},{\"x\":30.0,\"y\":10.0},{\"x\":30.0,\"y\":40.0}],\"peck\":null}]}"
+    );
+    assert_eq!(text, expected);
+    assert!(!text.contains("closed"));
+}

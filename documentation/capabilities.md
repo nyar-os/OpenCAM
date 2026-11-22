@@ -21,6 +21,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `pocket` circle (concentric ring) clearing | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | `engrave` along a polyline (no cutter-radius compensation) | ✅ supported |
+| `engrave` closed polyline (`closed`) | ✅ supported |
 | multi-pass Z depth (`stepdown`) | ✅ supported |
 | raster spacing (`stepover`) | ✅ supported |
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
@@ -89,10 +90,14 @@ The machine-readable version is printed by `open-cam capabilities` and by
    peck) at the clearance plane `R` and cancels the cycle with `G80`.
 10. **Engraving.** Every depth level rapids to the first path point at the
     clearance plane, plunges at `plungeFeed` and connects each consecutive pair
-    of path points with one cutting move. The tool then rapids back to the
-    clearance plane above the last point. The cutter follows the polyline centre
-    line, so no cutter-radius compensation is applied. Adjacent duplicate points
-    are rejected by validation instead of being silently skipped.
+    of path points with one cutting move. With `closed: true` the level also
+    cuts from the last point back to the first, so the polyline forms one
+    closed loop; the last point may therefore not already coincide with the
+    first. The tool then rapids back to the clearance plane above the last
+    point. The cutter follows the polyline centre line, so no cutter-radius
+    compensation is applied. Adjacent duplicate points are rejected by
+    validation instead of being silently skipped. The closing cut counts toward
+    `cutLength` and the cycle time like every other cutting move.
 11. **Metrics.** Cutting length and time use the cutting feed; rapid length and
     time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
@@ -112,7 +117,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs or an engrave polyline are invalid; an engrave polyline needs at least two points and may not repeat an adjacent point; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)` |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -135,7 +140,7 @@ outside the stock) do not make `ok` false.
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
-| `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, validation codes, G-code, empty `path` serialization |
+| `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, closed square perimeter and extra move, open/closed move difference, closed first/last coincidence rejection, non-engrave `closed` rejection, default document byte identity, validation codes, G-code, empty `path` serialization |
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
@@ -160,8 +165,9 @@ outside the stock) do not make `ok` false.
   only: individual tab positions, tab shapes other than a chord of the profile
   and a separate tab-removal pass are not supported.
 - Engraving follows the supplied polyline exactly: no cutter-radius
-  compensation, curve fitting, tangency, lead-in or lead-out moves. Holes and
-  islands are not supported by an engrave operation.
+  compensation, curve fitting, tangency, lead-in or lead-out moves. A closed
+  polyline only adds a straight cut back to its first point. Holes and islands
+  are not supported by an engrave operation.
 - The validator checks geometry against the stock, not against fixtures, clamps
   or machine travel limits.
 - Cycle time is a kinematic estimate, not a machine simulation.

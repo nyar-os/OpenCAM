@@ -59,6 +59,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--island <x,y,w,h>]...
                       [--path <x,y;x,y>]
                       [--tabs <count,width,height>]
+                      [--closed]
 ```
 
 | Kind | Geometry |
@@ -67,7 +68,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` |
 | `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` |
-| `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line |
+| `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
 
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
 the tool diameter for facing and 60 % for pocketing. The operation is validated
@@ -105,6 +106,13 @@ engrave operation needs at least two points, every point must lie on the stock
 and adjacent points may not coincide; violations report `operation/invalid` or
 `path/outside-stock`. `engrave` accepts neither `--holes` nor `--island`
 (`operation/invalid`).
+
+`--closed` is a flag for `engrave` that adds one cutting move from the last path
+point back to the first at every depth level, so the polyline forms a closed
+loop. The path must not already end on its first point; that reports
+`operation/invalid` instead of emitting a zero-length move. `--closed` on any
+other kind reports `operation/invalid`. Without the flag the engraving is exactly
+the open polyline as before.
 
 `--tabs count,width,height` is only used by `contour` and leaves holding tabs in
 the profile. `count` tabs are spaced evenly around the rectangle perimeter; each
@@ -202,6 +210,8 @@ open-cam operation add bracket.ocam --id bore --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --shape circle --x 20 --y 20 --width 40 --height 40
 open-cam operation add bracket.ocam --id logo --kind engrave --tool t2 \
     --depth 0.5 --stepdown 0.25 --path "10,10;40,10;40,30;70,30"
+open-cam operation add bracket.ocam --id border --kind engrave --tool t2 \
+    --depth 0.5 --closed --path "10,10;40,10;40,30;10,30"
 open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \
     --depth 8 --stepdown 2 --x 20 --y 20 --width 60 --height 40 \
     --tabs 4,6,1

@@ -323,8 +323,10 @@ fn rapid_along(profile: &Profile, builder: &mut Builder, start: f64, end: f64, z
 ///
 /// The tool rapids to the first point at the clearance plane, plunges to the
 /// level, cuts each segment in order at the cutting feed and finally rapids back
-/// to the clearance plane above the last point. The cutter follows the polyline
-/// itself, so no cutter-radius compensation is applied.
+/// to the clearance plane above the last point. A closed engraving adds one
+/// cutting move from the last point back to the first at every level. The
+/// cutter follows the polyline itself, so no cutter-radius compensation is
+/// applied.
 fn engrave(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let first = operation.path[0];
 
@@ -334,6 +336,9 @@ fn engrave(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
         builder.feed_to(Point::new(first.x, first.y, z), MoveKind::Plunge, tool.plunge_feed);
         for point in &operation.path[1..] {
             builder.feed_to(Point::new(point.x, point.y, z), MoveKind::Cut, tool.feed);
+        }
+        if operation.closed {
+            builder.feed_to(Point::new(first.x, first.y, z), MoveKind::Cut, tool.feed);
         }
         let at = builder.at;
         builder.rapid_to(Point::new(at.x, at.y, safe_z));

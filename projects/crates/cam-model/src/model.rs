@@ -239,8 +239,9 @@ impl TabSettings {
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
-/// `peck` only by `drill`, `path` only by `engrave`, and `tabs` only by
-/// `contour`. `strategy` selects the rectangle clearing pattern:
+/// `peck` only by `drill`, `path` only by `engrave`, `closed` only by `engrave`,
+/// and `tabs` only by `contour`. `strategy` selects the rectangle clearing
+/// pattern:
 /// `raster` (the default) or `spiral` (concentric rectangles). `shape` selects
 /// the pocket outline: `rect` (the default) or `circle`, which uses `width` as
 /// the diameter and needs `height` equal to `width`.
@@ -280,6 +281,9 @@ pub struct Operation {
     /// Polyline vertices of an `engrave` operation, connected in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<PathPoint>,
+    /// Closes an `engrave` polyline back to its first point at every level.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub closed: bool,
     /// Rectangular islands left standing by a `pocket` operation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub islands: Vec<Island>,
@@ -321,6 +325,7 @@ impl Operation {
             height: 0.0,
             holes: Vec::new(),
             path: Vec::new(),
+            closed: false,
             islands: Vec::new(),
             peck: None,
             strategy: None,
@@ -355,4 +360,9 @@ impl Point {
         let dz = other.z - self.z;
         (dx * dx + dy * dy + dz * dz).sqrt()
     }
+}
+
+/// Keeps a `false` flag out of the serialized document.
+fn is_false(value: &bool) -> bool {
+    !*value
 }

@@ -198,6 +198,11 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
         Some(Value::String(value)) => Some(value.clone()),
         Some(_) => return Err(argument_error("`shape` must be a string")),
     };
+    operation.closed = match request.get("closed") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err(argument_error("`closed` must be a boolean")),
+    };
     if let Some(Value::Array(holes)) = request.get("holes") {
         let mut parsed = Vec::with_capacity(holes.len());
         for hole in holes {
