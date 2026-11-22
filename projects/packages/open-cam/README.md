@@ -24,7 +24,7 @@ open-cam tool remove <file> --id <id>
 open-cam operation add <file> --id <id> --kind face|contour|pocket|drill
                      --tool <id> --depth <d> [--stepdown <d>] [--stepover <d>]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
-                     [--holes <x,y;x,y>] [--peck <d>]
+                     [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
 open-cam operation remove <file> --id <id>
 open-cam validate <file>
 open-cam toolpaths <file> [--out report.json]
@@ -71,6 +71,17 @@ await document.addTool({
     plungeFeed: 300,
 });
 await document.addOperation({ id: 'face', kind: 'face', tool: 't6', depth: 1, stepdown: 0.5, stepover: 4 });
+await document.addOperation({
+    id: 'pocket',
+    kind: 'pocket',
+    tool: 't6',
+    depth: 2,
+    x: 10,
+    y: 10,
+    width: 100,
+    height: 70,
+    islands: [{ x: 40, y: 35, width: 20, height: 20 }],
+});
 
 const report = await document.toolpaths();
 console.log(report.estimatedSeconds);
@@ -95,8 +106,12 @@ return the document summary as written to disk, so `revision`, `tools` and
 | `operations` | `face`, `contour`, `pocket` or `drill` |
 
 Contour and pocket use `x`, `y`, `width`, `height`; drill uses `holes` and an
-optional `peck`. `stepdown` is the maximum cut per Z pass and `stepover` defaults
-to 70 % of the tool diameter for facing and 60 % for pocketing.
+optional `peck`. A pocket may also carry `islands`, an array of
+`{ x, y, width, height }` rectangles that the raster clears around. `stepdown`
+is the maximum cut per Z pass and `stepover` defaults to 70 % of the tool
+diameter for facing and 60 % for pocketing. The toolpath report reports
+`islandCount`, `skippedLength` and `skippedSegments` per operation, all `0`
+without islands.
 
 ## Constraints
 

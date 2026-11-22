@@ -15,6 +15,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `face` raster facing | ✅ supported |
 | `contour` outside profile, cutter-radius offset | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
+| `pocket` islands (rectangular) | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | multi-pass Z depth (`stepdown`) | ✅ supported |
 | raster spacing (`stepover`) | ✅ supported |
@@ -44,10 +45,18 @@ The machine-readable version is printed by `open-cam capabilities` and by
 5. **Pocket.** The raster runs between `x + r … x + width − r` and
    `y + r … y + height − r`; the validator rejects a pocket narrower than the
    tool so the shrunk rectangle can never invert.
-6. **Drilling.** Each hole is a rapid to the centre, a plunge to
+6. **Island-aware pocket.** Every island is expanded by the cutter radius. On
+   each raster line the expanded islands become keep-out intervals that split
+   the line into cut spans; only spans outside every keep-out zone are cut, so
+   every cutting point — including the span endpoints — stays at least `r` from
+   an island. The tool retracts to the clearance plane before crossing a
+   keep-out zone and plunges again on the far side. The report records
+   `islandCount`, `skippedLength` and `skippedSegments`; all three are `0` when
+   an operation has no islands.
+7. **Drilling.** Each hole is a rapid to the centre, a plunge to
    `height − depth`, and a rapid retract. G-code uses `G81` (or `G83` with `Q` for
    peck) at the clearance plane `R` and cancels the cycle with `G80`.
-7. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+8. **Metrics.** Cutting length and time use the cutting feed; rapid length and
    time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
 ## G-code
@@ -69,6 +78,10 @@ and `-0` is normalised to `0`.
 | `operation/invalid` | depth, stepdown, stepover, geometry, holes or peck are invalid |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
+| `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
+| `operation/island-outside-pocket` | an island is not fully inside its pocket |
+| `operation/island-too-close` | an island expanded by the cutter radius does not fit inside the pocket shrunk by the cutter radius |
+| `operation/island-overlap` | two expanded islands overlap, so the cutter cannot pass between them |
 | `path/outside-stock` | a profile, pocket or hole leaves the stock |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
@@ -79,15 +92,17 @@ outside the stock) do not make `ok` false.
 | File | Asserts |
 |------|---------|
 | `tests/toolpath.rs` | depth levels, closed contour, pocket containment, drill plunges, determinism |
+| `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
-| `tests/smoke.test.ts` (TypeScript) | session lifecycle and argument errors before the addon |
+| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors and island pocket reporting (skipped without the addon) |
 
 ## Limitations
 
 - Rasters are axis-aligned; there is no trochoidal or adaptive strategy.
-- Pockets are rectangular only; no islands or arbitrary boundaries.
+- Pockets are rectangular; islands are rectangles inside the pocket. Arbitrary
+  pocket outlines, fillets and adaptive corner clearing are not supported.
 - Contours are rectangles with a constant cutter-radius offset; no arcs or
   lead-in/lead-out moves.
 - The validator checks geometry against the stock, not against fixtures, clamps

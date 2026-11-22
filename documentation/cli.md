@@ -54,18 +54,26 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--stepdown <d>] [--stepover <d>] [--name <name>]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                       [--holes <x,y;x,y>] [--peck <d>]
+                      [--island <x,y,w,h>]...
 ```
 
 | Kind | Geometry |
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius |
-| `pocket` | `--x --y --width --height`, raster inside the cutter radius |
+| `pocket` | `--x --y --width --height`, raster inside the cutter radius, repeatable `--island` |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` |
 
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
 the tool diameter for facing and 60 % for pocketing. The operation is validated
 against the stock before it is saved.
+
+`--island x,y,w,h` is repeatable and only valid for `pocket`. Each island is a
+rectangle in the pocket's coordinate frame; the tool path skips every raster
+portion that falls inside an island expanded by the cutter radius and crosses
+the gap at the clearance plane. An island must lie inside the pocket, far enough
+from the wall that its expanded rectangle fits inside the pocket shrunk by the
+cutter radius, and expanded islands may not overlap.
 
 ## operation remove
 
@@ -90,7 +98,9 @@ open-cam toolpaths <file> [--out report.json]
 
 Prints the toolpath report and optionally writes the same JSON. The report
 contains `safeZ`, `rapidFeed`, total `cutLength`, `rapidLength`,
-`estimatedSeconds` and one entry per operation with every move.
+`estimatedSeconds` and one entry per operation with every move. Each operation
+also reports `islandCount`, `skippedLength` and `skippedSegments`; they are `0`
+for operations without islands.
 
 ## gcode
 
@@ -139,7 +149,8 @@ open-cam create bracket.ocam
 open-cam stock bracket.ocam --width 120 --depth 80 --height 12
 open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 --plunge 300
 open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
-    --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40
+    --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40 \
+    --island 40,26,20,20
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam gcode bracket.ocam --out bracket.nc
