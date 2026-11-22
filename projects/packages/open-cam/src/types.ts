@@ -111,6 +111,8 @@ export interface Operation {
     readonly shape?: PocketShape;
     /** Holding tabs of a contour operation; absent cuts the full profile. */
     readonly tabs?: TabSettings;
+    /** Adds one wall finish loop per Z level to a pocket operation. */
+    readonly finish?: boolean;
 }
 
 /** Summary of one document as written to disk. */
@@ -271,6 +273,8 @@ export interface OperationRequest {
     readonly shape?: PocketShape;
     /** Holding tabs of a contour operation; omitted cuts the full profile. */
     readonly tabs?: TabSettings;
+    /** Adds one wall finish loop per Z level to a pocket operation; `false` when omitted. */
+    readonly finish?: boolean;
 }
 
 /** Disclosure level of one capability entry. */

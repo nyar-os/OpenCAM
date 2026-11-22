@@ -204,6 +204,11 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
         Some(Value::Bool(value)) => *value,
         Some(_) => return Err(argument_error("`closed` must be a boolean")),
     };
+    operation.finish = match request.get("finish") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(value)) => Some(*value),
+        Some(_) => return Err(argument_error("`finish` must be a boolean")),
+    };
     if let Some(Value::Array(holes)) = request.get("holes") {
         let mut parsed = Vec::with_capacity(holes.len());
         for hole in holes {

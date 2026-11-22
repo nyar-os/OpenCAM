@@ -466,6 +466,9 @@ fn pocket_plain(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f
             builder.feed_to(Point::new(x, *y, z), MoveKind::Cut, tool.feed);
             forward = !forward;
         }
+        if operation.finish == Some(true) {
+            finish_rectangle(operation, tool, z, builder);
+        }
         let at = builder.at;
         builder.rapid_to(Point::new(at.x, at.y, safe_z));
     }
@@ -526,6 +529,9 @@ fn pocket_spiral(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
             builder.feed_to(Point::new(x0, y1, z), MoveKind::Cut, tool.feed);
             builder.feed_to(Point::new(x0, y0, z), MoveKind::Cut, tool.feed);
             builder.loop_count += 1;
+        }
+        if operation.finish == Some(true) {
+            finish_rectangle(operation, tool, z, builder);
         }
         let at = builder.at;
         builder.rapid_to(Point::new(at.x, at.y, safe_z));
@@ -589,9 +595,47 @@ fn pocket_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
             builder.loop_count += 1;
         }
         builder.feed_to(Point::new(centre.x, centre.y, z), MoveKind::Cut, tool.feed);
+        if operation.finish == Some(true) {
+            finish_circle(&centre, pocket_radius, tool, z, builder);
+        }
         let at = builder.at;
         builder.rapid_to(Point::new(at.x, at.y, safe_z));
     }
+}
+
+/// One closed finish loop along the final rectangular pocket wall.
+///
+/// The loop uses the nominal cutter-radius offset, so every corner is exactly
+/// `r` from the wall. It runs at the level depth and the cutting feed and is
+/// reached with one cutting move across the already cleared floor. The loop is
+/// emitted after the clearing moves of one level and adds no Z move.
+fn finish_rectangle(operation: &Operation, tool: &Tool, z: f64, builder: &mut Builder) {
+    let radius = tool.radius();
+    let x0 = operation.x + radius;
+    let y0 = operation.y + radius;
+    let x1 = operation.x + operation.width - radius;
+    let y1 = operation.y + operation.height - radius;
+    builder.feed_to(Point::new(x0, y0, z), MoveKind::Cut, tool.feed);
+    builder.feed_to(Point::new(x1, y0, z), MoveKind::Cut, tool.feed);
+    builder.feed_to(Point::new(x1, y1, z), MoveKind::Cut, tool.feed);
+    builder.feed_to(Point::new(x0, y1, z), MoveKind::Cut, tool.feed);
+    builder.feed_to(Point::new(x0, y0, z), MoveKind::Cut, tool.feed);
+}
+
+/// One closed finish ring along the final circular pocket wall.
+///
+/// The ring has radius `R − r` around `centre`, the same approximation as the
+/// clearing rings, and is reached with one cutting move from the centre. It
+/// runs at the level depth and the cutting feed and adds no Z move.
+fn finish_circle(centre: &Point, radius: f64, tool: &Tool, z: f64, builder: &mut Builder) {
+    let ring = radius - tool.radius();
+    let start = Point::new(centre.x + ring, centre.y, z);
+    builder.feed_to(start, MoveKind::Cut, tool.feed);
+    for step in 1..=RING_SEGMENTS {
+        let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
+        builder.feed_to(Point::new(centre.x + ring * angle.cos(), centre.y + ring * angle.sin(), z), MoveKind::Cut, tool.feed);
+    }
+    builder.feed_to(start, MoveKind::Cut, tool.feed);
 }
 
 /// X intervals of one raster line that stay outside every island keep-out zone.

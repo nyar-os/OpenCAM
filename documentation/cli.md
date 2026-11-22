@@ -59,14 +59,14 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--island <x,y,w,h>]...
                       [--path <x,y;x,y>]
                       [--tabs <count,width,height>]
-                      [--closed]
+                      [--closed] [--finish]
 ```
 
 | Kind | Geometry |
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` |
-| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles |
+| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles, optional `--finish` wall loop |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
 
@@ -134,6 +134,15 @@ another kind uses tabs, when `count` is zero, when `width` or `height` is not
 positive, when `height` exceeds `--depth`, or when `count × width` is not below
 the profile perimeter `2 × (width + height)`.
 
+`--finish` is a flag for `pocket` that adds one extra closed loop along the
+final wall after the clearing moves of every depth level. The loop follows the
+nominal cutter radius: the rectangle shrunk by `r` for raster and spiral
+pockets, or the ring of radius `width / 2 − r` for a circular pocket. It runs at
+the level depth and the cutting feed and counts toward the reported cut length
+and cycle time. `--finish` cannot be combined with `--island`
+(`operation/invalid`) and does not change the clearing moves when omitted.
+`--finish` on any kind other than `pocket` reports `operation/invalid`.
+
 ## operation remove
 
 ```shell
@@ -160,9 +169,11 @@ contains `safeZ`, `rapidFeed`, total `cutLength`, `rapidLength`,
 `estimatedSeconds` and one entry per operation with every move. Each operation
 also reports `islandCount`, `skippedLength` and `skippedSegments`; they are `0`
 for operations without islands. A spiral pocket additionally reports `strategy`
-(`"spiral"`) and `loopCount`, the number of closed loops emitted over every
-depth level; a circular pocket reports `shape` (`"circle"`) and `loopCount`, the
-number of closed rings. Raster operations keep the previous shape and add no
+(`"spiral"`) and `loopCount`, the number of closed clearing loops emitted over
+every depth level; a circular pocket reports `shape` (`"circle"`) and
+`loopCount`, the number of closed clearing rings. A wall finish loop is not
+counted in `loopCount`, but its moves are included in `segments`, `cutLength`
+and the cycle time. Raster operations keep the previous shape and add no
 fields.
 
 ## gcode
@@ -222,6 +233,8 @@ open-cam operation add bracket.ocam --id logo --kind engrave --tool t2 \
     --depth 0.5 --stepdown 0.25 --path "10,10;40,10;40,30;70,30"
 open-cam operation add bracket.ocam --id border --kind engrave --tool t2 \
     --depth 0.5 --closed --path "10,10;40,10;40,30;10,30"
+open-cam operation add bracket.ocam --id floor --kind pocket --tool t6 \
+    --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40 --finish
 open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \
     --depth 8 --stepdown 2 --x 20 --y 20 --width 60 --height 40 \
     --tabs 4,6,1

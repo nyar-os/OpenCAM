@@ -250,6 +250,12 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` uses closed but only `engrave` supports it", operation.id),
         ));
     }
+    if operation.finish.is_some() && operation.kind != OperationKind::Pocket {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` uses finish but only `pocket` supports it", operation.id),
+        ));
+    }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {
@@ -312,6 +318,15 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                 issues.push(Issue::error(
                     "operation/strategy-island",
                     format!("operation `{}` uses strategy `spiral`, which does not support islands", operation.id),
+                ));
+            }
+            if operation.finish == Some(true) && !operation.islands.is_empty() {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!(
+                        "operation `{}` enables finish but the wall finish pass does not support islands; remove them or disable finish",
+                        operation.id
+                    ),
                 ));
             }
             check_rectangle(operation, document, issues);

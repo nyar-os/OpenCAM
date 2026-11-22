@@ -359,7 +359,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                 '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island', '--path',
                 '--tabs',
             ],
-            ['--closed'],
+            ['--closed', '--finish'],
             async (document, parsed) => {
                 const depth = requiredNumber(parsed, '--depth');
                 const id = required(parsed, '--id');
@@ -390,6 +390,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         islands: parseIslands(parsed.repeated.get('--island') ?? []),
                         peck: number(parsed, '--peck'),
                         tabs: tabs === undefined ? undefined : parseTabs(tabs),
+                        finish: parsed.flags.has('--finish') ? true : undefined,
                     }),
                 );
             },

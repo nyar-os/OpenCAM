@@ -56,6 +56,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "pocketCircle": "supported",
     "pocketSpiral": "supported",
     "pocketIslands": "supported",
+    "pocketFinish": "supported",
     "drill": "supported",
     "engrave": "supported",
     "engraveClosed": "supported",

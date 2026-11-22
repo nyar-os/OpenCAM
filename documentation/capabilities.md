@@ -19,6 +19,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
 | `pocket` circle (concentric ring) clearing | ✅ supported |
+| `pocket` wall finish pass (`finish`) | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | `engrave` along a polyline (no cutter-radius compensation) | ✅ supported |
 | `engrave` closed polyline (`closed`) | ✅ supported |
@@ -115,7 +116,21 @@ The machine-readable version is printed by `open-cam capabilities` and by
     not finite and positive. An island-aware pocket ramps only the first entry
     of each level and keeps the vertical re-entry of later spans; a contour
     keeps the vertical plunge at every tab end.
-12. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+12. **Pocket wall finish.** `finish: true` cuts one extra closed loop along the
+    final wall after the clearing moves of every depth level. The loop sits at
+    the nominal cutter-radius offset, so every point is exactly `r` from the
+    wall: the rectangle corners `(x + r, y + r) … (x + width − r, y + height −
+    r)` for rectangular raster and spiral clearing, or the ring of radius
+    `width / 2 − r` approximated by 72 segments for a circular pocket. The
+    loop runs at the level depth and the cutting feed, is reached with one
+    cutting move across the already cleared floor and adds no Z move, so the
+    depth and cutter-radius semantics are unchanged. Every finish move counts
+    toward `cutLength` and the cycle time. `loopCount` keeps counting clearing
+    loops only, so the finish loop does not change it. Islands are not
+    supported: a pocket with `finish: true` and islands reports
+    `operation/invalid`. `finish: false` or an omitted `finish` keeps the
+    clearing output byte-identical.
+13. **Metrics.** Cutting length and time use the cutting feed; rapid length and
     time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
 ## G-code
@@ -134,7 +149,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed`, `ramp` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -160,6 +175,7 @@ outside the stock) do not make `ok` false.
 | `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, closed square perimeter and extra move, open/closed move difference, closed first/last coincidence rejection, non-engrave `closed` rejection, default document byte identity, validation codes, G-code, empty `path` serialization |
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
+| `tests/finish.rs` | no-finish byte identity, one wall loop per level for raster, spiral and circular pockets, wall clearance and depth, invalid kinds and island rejection, cut length and loop count, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -192,6 +208,11 @@ outside the stock) do not make `ok` false.
   ramps only the first entry of a level, so island re-entries and contour
   tab-end plunges stay vertical, and it cannot be combined with `drill` or
   `face`.
+- The wall finish pass is one closed loop at the nominal cutter radius. It is
+  not a spring pass, does not offset further into the wall and does not follow
+  islands: a pocket with islands and `finish: true` reports
+  `operation/invalid`. It applies to `pocket` only and cannot be combined with
+  `face`, `contour`, `drill` or `engrave`.
 - The validator checks geometry against the stock, not against fixtures, clamps
   or machine travel limits.
 - Cycle time is a kinematic estimate, not a machine simulation.

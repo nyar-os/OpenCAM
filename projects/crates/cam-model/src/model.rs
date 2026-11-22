@@ -240,12 +240,11 @@ impl TabSettings {
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
 /// `peck` only by `drill`, `path` only by `engrave`, `closed` only by `engrave`,
-/// `tabs` only by `contour`, and `ramp` only by `contour`, `pocket` and
-/// `engrave`. `strategy` selects the rectangle clearing
-/// pattern:
-/// `raster` (the default) or `spiral` (concentric rectangles). `shape` selects
-/// the pocket outline: `rect` (the default) or `circle`, which uses `width` as
-/// the diameter and needs `height` equal to `width`.
+/// `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
+/// `engrave`, and `finish` only by `pocket`. `strategy` selects the rectangle
+/// clearing pattern: `raster` (the default) or `spiral` (concentric rectangles).
+/// `shape` selects the pocket outline: `rect` (the default) or `circle`, which
+/// uses `width` as the diameter and needs `height` equal to `width`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
@@ -320,6 +319,15 @@ pub struct Operation {
     /// Holding tabs of a `contour` operation; `None` cuts the full profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tabs: Option<TabSettings>,
+    /// Adds a wall finish pass to a `pocket` operation.
+    ///
+    /// When `true`, every Z level cuts one extra closed loop along the final
+    /// wall at the nominal cutter-radius offset after the clearing moves. The
+    /// pass supports rectangular raster, spiral and circular pockets; it uses
+    /// the same depth and cutter radius and is rejected for pockets with
+    /// islands. `None` and `false` keep the clearing output unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish: Option<bool>,
 }
 
 impl Operation {
@@ -346,6 +354,7 @@ impl Operation {
             strategy: None,
             shape: None,
             tabs: None,
+            finish: None,
         }
     }
 }
