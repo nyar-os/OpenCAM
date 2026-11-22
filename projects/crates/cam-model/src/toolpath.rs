@@ -18,6 +18,9 @@ pub const RAPID_FEED: f64 = 8000.0;
 /// Distance the tool keeps above the stock top when traversing.
 pub const CLEARANCE: f64 = 5.0;
 
+/// Geometric tolerance used when splitting raster lines around islands, in millimetres.
+const TOLERANCE: f64 = 1e-9;
+
 /// Kind of one machine move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +69,12 @@ pub struct OperationPath {
     pub cutting_seconds: f64,
     /// Estimated rapid time in seconds.
     pub rapid_seconds: f64,
+    /// Number of islands this operation clears around.
+    pub island_count: usize,
+    /// Raster length skipped because it falls inside an island keep-out zone.
+    pub skipped_length: f64,
+    /// Number of raster passes skipped because of island keep-out zones.
+    pub skipped_segments: usize,
     /// Explicit moves in execution order.
     pub segments: Vec<Move>,
 }
@@ -184,6 +193,51 @@ fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
 }
 
 fn pocket(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
+    if operation.islands.is_empty() {
+        pocket_plain(operation, tool, stock_height, safe_z, builder);
+        return;
+    }
+
+    let radius = tool.radius();
+    let stepover = operation.stepover.unwrap_or(0.6 * tool.diameter);
+    let x0 = operation.x + radius;
+    let x1 = operation.x + operation.width - radius;
+    let y0 = operation.y + radius;
+    let lines: Vec<f64> =
+        line_positions(operation.height - 2.0 * radius, stepover).into_iter().map(|offset| y0 + offset).collect();
+    builder.island_count = operation.islands.len();
+
+    for depth in level_depths(operation.depth, operation.stepdown) {
+        let z = stock_height - depth;
+        let mut forward = true;
+        for y in &lines {
+            let blocked = island_keep_out(operation, radius, *y, x0, x1);
+            builder.skipped_segments += blocked.len();
+            builder.skipped_length += blocked.iter().map(|(low, high)| high - low).sum::<f64>();
+            let spans = cut_spans(x0, x1, &blocked);
+            if !forward {
+                for (start, end) in spans.into_iter().rev().map(|(low, high)| (high, low)) {
+                    builder.rapid_to(Point::new(start, *y, safe_z));
+                    builder.feed_to(Point::new(start, *y, z), MoveKind::Plunge, tool.plunge_feed);
+                    builder.feed_to(Point::new(end, *y, z), MoveKind::Cut, tool.feed);
+                    let at = builder.at;
+                    builder.rapid_to(Point::new(at.x, at.y, safe_z));
+                }
+            } else {
+                for (start, end) in spans {
+                    builder.rapid_to(Point::new(start, *y, safe_z));
+                    builder.feed_to(Point::new(start, *y, z), MoveKind::Plunge, tool.plunge_feed);
+                    builder.feed_to(Point::new(end, *y, z), MoveKind::Cut, tool.feed);
+                    let at = builder.at;
+                    builder.rapid_to(Point::new(at.x, at.y, safe_z));
+                }
+            }
+            forward = !forward;
+        }
+    }
+}
+
+fn pocket_plain(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let radius = tool.radius();
     let stepover = operation.stepover.unwrap_or(0.6 * tool.diameter);
     let x0 = operation.x + radius;
@@ -211,6 +265,49 @@ fn pocket(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, bu
     }
 }
 
+/// X intervals of one raster line that stay outside every island keep-out zone.
+fn island_keep_out(operation: &Operation, radius: f64, y: f64, x0: f64, x1: f64) -> Vec<(f64, f64)> {
+    let mut blocked = Vec::new();
+    for island in &operation.islands {
+        if y < island.y - radius - TOLERANCE || y > island.y + island.height + radius + TOLERANCE {
+            continue;
+        }
+        let low = (island.x - radius).max(x0);
+        let high = (island.x + island.width + radius).min(x1);
+        if high - low > TOLERANCE {
+            blocked.push((low, high));
+        }
+    }
+    blocked.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let mut merged: Vec<(f64, f64)> = Vec::with_capacity(blocked.len());
+    for (low, high) in blocked {
+        if let Some(last) = merged.last_mut() {
+            if low <= last.1 + TOLERANCE {
+                last.1 = last.1.max(high);
+                continue;
+            }
+        }
+        merged.push((low, high));
+    }
+    merged
+}
+
+/// Complement of the blocked intervals inside `x0 … x1`, in ascending order.
+fn cut_spans(x0: f64, x1: f64, blocked: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut spans = Vec::new();
+    let mut cursor = x0;
+    for (low, high) in blocked {
+        if *low > cursor + TOLERANCE {
+            spans.push((cursor, *low));
+        }
+        cursor = cursor.max(*high);
+    }
+    if x1 > cursor + TOLERANCE {
+        spans.push((cursor, x1));
+    }
+    spans
+}
+
 fn drill(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let z = stock_height - operation.depth;
     for hole in &operation.holes {
@@ -227,11 +324,24 @@ struct Builder {
     rapid_length: f64,
     cutting_seconds: f64,
     rapid_seconds: f64,
+    island_count: usize,
+    skipped_length: f64,
+    skipped_segments: usize,
 }
 
 impl Builder {
     fn new(at: Point) -> Self {
-        Self { at, segments: Vec::new(), cut_length: 0.0, rapid_length: 0.0, cutting_seconds: 0.0, rapid_seconds: 0.0 }
+        Self {
+            at,
+            segments: Vec::new(),
+            cut_length: 0.0,
+            rapid_length: 0.0,
+            cutting_seconds: 0.0,
+            rapid_seconds: 0.0,
+            island_count: 0,
+            skipped_length: 0.0,
+            skipped_segments: 0,
+        }
     }
 
     fn rapid_to(&mut self, to: Point) {
@@ -272,6 +382,9 @@ impl Builder {
             rapid_length: self.rapid_length,
             cutting_seconds: self.cutting_seconds,
             rapid_seconds: self.rapid_seconds,
+            island_count: self.island_count,
+            skipped_length: self.skipped_length,
+            skipped_segments: self.skipped_segments,
             segments: std::mem::take(&mut self.segments),
         }
     }

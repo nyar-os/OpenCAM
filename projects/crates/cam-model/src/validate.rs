@@ -192,8 +192,9 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
         }
     }
     match operation.kind {
-        OperationKind::Face => {}
+        OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {
+            check_no_islands(operation, issues);
             check_rectangle(operation, document, issues);
             if !positive(tool.diameter) {
                 return;
@@ -221,8 +222,10 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                     format!("operation `{}` pocket is narrower than the tool diameter {}", operation.id, tool.diameter),
                 ));
             }
+            check_islands(operation, tool, issues);
         }
         OperationKind::Drill => {
+            check_no_islands(operation, issues);
             if operation.holes.is_empty() {
                 issues.push(Issue::error("operation/invalid", format!("operation `{}` has no holes", operation.id)));
             }
@@ -272,6 +275,89 @@ fn check_rectangle(operation: &Operation, document: &CamDocument, issues: &mut V
     }
 }
 
+fn check_no_islands(operation: &Operation, issues: &mut Vec<Issue>) {
+    if !operation.islands.is_empty() {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` uses islands but only `pocket` supports them", operation.id),
+        ));
+    }
+}
+
+fn check_islands(operation: &Operation, tool: &Tool, issues: &mut Vec<Issue>) {
+    let mut expanded = Vec::with_capacity(operation.islands.len());
+    for (index, island) in operation.islands.iter().enumerate() {
+        let numeric = island.x.is_finite()
+            && island.y.is_finite()
+            && island.width.is_finite()
+            && island.height.is_finite()
+            && island.width > 0.0
+            && island.height > 0.0;
+        if !numeric {
+            issues.push(Issue::error(
+                "operation/island-invalid",
+                format!(
+                    "operation `{}` island {} needs finite coordinates and a positive width and height",
+                    operation.id, index
+                ),
+            ));
+            continue;
+        }
+        if !positive(operation.width) || !positive(operation.height) || !positive(tool.diameter) {
+            continue;
+        }
+
+        let inside_pocket = island.x >= operation.x - EPSILON
+            && island.y >= operation.y - EPSILON
+            && island.x + island.width <= operation.x + operation.width + EPSILON
+            && island.y + island.height <= operation.y + operation.height + EPSILON;
+        if !inside_pocket {
+            issues.push(Issue::error(
+                "operation/island-outside-pocket",
+                format!("operation `{}` island {} leaves the pocket boundary", operation.id, index),
+            ));
+            continue;
+        }
+
+        let radius = tool.radius();
+        let inner_x0 = operation.x + radius;
+        let inner_y0 = operation.y + radius;
+        let inner_x1 = operation.x + operation.width - radius;
+        let inner_y1 = operation.y + operation.height - radius;
+        let x0 = island.x - radius;
+        let y0 = island.y - radius;
+        let x1 = island.x + island.width + radius;
+        let y1 = island.y + island.height + radius;
+        if x0 < inner_x0 - EPSILON || y0 < inner_y0 - EPSILON || x1 > inner_x1 + EPSILON || y1 > inner_y1 + EPSILON {
+            issues.push(Issue::error(
+                "operation/island-too-close",
+                format!(
+                    "operation `{}` island {} is closer than the cutter radius {} to the pocket wall",
+                    operation.id, index, radius
+                ),
+            ));
+            continue;
+        }
+        expanded.push((index, x0, y0, x1, y1));
+    }
+
+    for (position, &(first_index, ax0, ay0, ax1, ay1)) in expanded.iter().enumerate() {
+        for &(second_index, bx0, by0, bx1, by1) in &expanded[position + 1..] {
+            let overlap_x = ax1.min(bx1) - ax0.max(bx0);
+            let overlap_y = ay1.min(by1) - ay0.max(by0);
+            if overlap_x > EPSILON && overlap_y > EPSILON {
+                issues.push(Issue::error(
+                    "operation/island-overlap",
+                    format!(
+                        "operation `{}` islands {} and {} are closer than the cutter diameter",
+                        operation.id, first_index, second_index
+                    ),
+                ));
+            }
+        }
+    }
+}
+
 fn check_tool_entry(tool: &Tool, issues: &mut Vec<Issue>) {
     if tool.id.trim().is_empty() {
         issues.push(Issue::error("tool/invalid", "a tool id must be a non-empty string"));
@@ -295,6 +381,9 @@ fn check_tool_entry(tool: &Tool, issues: &mut Vec<Issue>) {
         issues.push(Issue::error("tool/invalid", format!("tool `{}` needs a positive plunge feed", tool.id)));
     }
 }
+
+/// Tolerance used when comparing island and pocket edges, in millimetres.
+const EPSILON: f64 = 1e-9;
 
 fn positive(value: f64) -> bool {
     value.is_finite() && value > 0.0

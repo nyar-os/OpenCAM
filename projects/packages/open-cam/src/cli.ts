@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
 import { OpenCAM } from './open-cam.js';
-import type { ExportFormat, Hole, OperationKind } from './types.js';
+import type { ExportFormat, Hole, Island, OperationKind } from './types.js';
 
 interface CliLocale {
     readonly cli: {
@@ -48,12 +48,14 @@ interface Parsed {
     readonly positionals: readonly string[];
     readonly flags: ReadonlySet<string>;
     readonly options: ReadonlyMap<string, string>;
+    readonly repeated: ReadonlyMap<string, readonly string[]>;
 }
 
 function parse(args: readonly string[], valueOptions: readonly string[], flagOptions: readonly string[]): Parsed {
     const positionals: string[] = [];
     const flags = new Set<string>();
     const options = new Map<string, string>();
+    const repeated = new Map<string, string[]>();
     let index = 0;
     while (index < args.length) {
         const argument = args[index] as string;
@@ -67,6 +69,12 @@ function parse(args: readonly string[], valueOptions: readonly string[], flagOpt
                     throw failure('cli/missing-value', 'missingValue', { option: argument });
                 }
                 options.set(argument, value);
+                const entries = repeated.get(argument);
+                if (entries === undefined) {
+                    repeated.set(argument, [value]);
+                } else {
+                    entries.push(value);
+                }
                 index += 2;
             } else {
                 throw failure('cli/unknown-option', 'unknownOption', { option: argument });
@@ -76,7 +84,7 @@ function parse(args: readonly string[], valueOptions: readonly string[], flagOpt
             index += 1;
         }
     }
-    return { positionals, flags, options };
+    return { positionals, flags, options, repeated };
 }
 
 function positional(parsed: Parsed, index: number, usage: string): string {
@@ -159,6 +167,20 @@ function parseHoles(raw: string): Hole[] {
             }
             return { x, y };
         });
+}
+
+function parseIslands(raw: readonly string[]): Island[] {
+    return raw.map((entry) => {
+        const parts = entry.split(',');
+        const x = Number(parts[0]);
+        const y = Number(parts[1]);
+        const width = Number(parts[2]);
+        const height = Number(parts[3]);
+        if (parts.length !== 4 || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+            throw new OpenCAMError('cli/invalid-number', `island \`${entry}\` must be an \`x,y,width,height\` quadruple`);
+        }
+        return { x, y, width, height };
+    });
 }
 
 function print(value: unknown): void {
@@ -292,7 +314,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             'operation add <file>',
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover',
-                '--x', '--y', '--width', '--height', '--holes', '--peck',
+                '--x', '--y', '--width', '--height', '--holes', '--peck', '--island',
             ],
             [],
             async (document, parsed) => {
@@ -313,6 +335,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         width: number(parsed, '--width') ?? 0,
                         height: number(parsed, '--height') ?? 0,
                         holes: holes === undefined ? [] : parseHoles(holes),
+                        islands: parseIslands(parsed.repeated.get('--island') ?? []),
                         peck: number(parsed, '--peck'),
                     }),
                 );

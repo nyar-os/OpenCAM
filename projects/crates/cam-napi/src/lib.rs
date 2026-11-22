@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use cam_model::{CamError, ExportFormat, Hole, OpenCam, Operation, OperationKind, Stock, Tool};
+use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, Stock, Tool};
 use serde::Serialize;
 use serde_json::Value;
 use wae::{CallContext, Error, JsValue, Result, function, register_module};
@@ -194,6 +194,18 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
             parsed.push(Hole::new(required_number_field(hole, "x")?, required_number_field(hole, "y")?));
         }
         operation.holes = parsed;
+    }
+    if let Some(Value::Array(islands)) = request.get("islands") {
+        let mut parsed = Vec::with_capacity(islands.len());
+        for island in islands {
+            parsed.push(Island::new(
+                required_number_field(island, "x")?,
+                required_number_field(island, "y")?,
+                required_number_field(island, "width")?,
+                required_number_field(island, "height")?,
+            ));
+        }
+        operation.islands = parsed;
     }
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;

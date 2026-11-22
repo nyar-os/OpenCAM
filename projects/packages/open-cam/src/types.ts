@@ -48,6 +48,14 @@ export interface Hole {
     readonly y: number;
 }
 
+/** One rectangular island left standing inside a pocket. */
+export interface Island {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
 /** One machining operation. */
 export interface Operation {
     readonly id: string;
@@ -65,6 +73,8 @@ export interface Operation {
     readonly width: number;
     readonly height: number;
     readonly holes: readonly Hole[];
+    /** Rectangular islands left standing by a pocket operation. */
+    readonly islands?: readonly Island[];
     /** Peck increment of a drill operation; `null` uses a single plunge. */
     readonly peck: number | null;
 }
@@ -122,6 +132,12 @@ export interface OperationPath {
     readonly rapidLength: number;
     readonly cuttingSeconds: number;
     readonly rapidSeconds: number;
+    /** Number of islands this operation clears around. */
+    readonly islandCount: number;
+    /** Raster length skipped because it falls inside an island keep-out zone. */
+    readonly skippedLength: number;
+    /** Number of raster passes skipped because of island keep-out zones. */
+    readonly skippedSegments: number;
     readonly segments: readonly Move[];
 }
 
@@ -200,6 +216,8 @@ export interface OperationRequest {
     readonly width?: number;
     readonly height?: number;
     readonly holes?: readonly Hole[];
+    /** Rectangular islands left standing by a pocket operation. */
+    readonly islands?: readonly Island[];
     readonly peck?: number;
 }
 

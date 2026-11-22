@@ -160,11 +160,36 @@ impl Hole {
     }
 }
 
+/// One rectangular island left standing inside a pocket.
+///
+/// Coordinates use the same frame as the pocket and are millimetres. An island
+/// occupies `x … x + width` along X and `y … y + height` along Y.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Island {
+    /// Lower-left corner X.
+    pub x: f64,
+    /// Lower-left corner Y.
+    pub y: f64,
+    /// Island size along X.
+    pub width: f64,
+    /// Island size along Y.
+    pub height: f64,
+}
+
+impl Island {
+    /// Creates an island from its lower-left corner and size.
+    pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
+        Self { x, y, width, height }
+    }
+}
+
 /// One machining operation.
 ///
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
-/// by `contour` and `pocket`, `holes` by `drill`, and `peck` only by `drill`.
+/// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`, and
+/// `peck` only by `drill`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
@@ -198,6 +223,9 @@ pub struct Operation {
     /// Hole centres of a `drill` operation.
     #[serde(default)]
     pub holes: Vec<Hole>,
+    /// Rectangular islands left standing by a `pocket` operation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub islands: Vec<Island>,
     /// Peck increment of a `drill` operation; `null` uses a single plunge.
     #[serde(default)]
     pub peck: Option<f64>,
@@ -219,6 +247,7 @@ impl Operation {
             width: 0.0,
             height: 0.0,
             holes: Vec::new(),
+            islands: Vec::new(),
             peck: None,
         }
     }

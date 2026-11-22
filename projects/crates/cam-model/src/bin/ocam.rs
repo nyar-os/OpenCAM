@@ -7,7 +7,7 @@
 
 use std::{collections::HashMap, env, path::Path, process};
 
-use cam_model::{CamError, ExportFormat, Hole, OpenCam, Operation, OperationKind, Stock, Tool};
+use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, Stock, Tool};
 
 const USAGE: &str = "\
 ocam - OpenCAM 2.5-axis toolpath and G-code generator (millimetres)
@@ -21,7 +21,7 @@ Usage:
   ocam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id>
                      --depth <d> [--stepdown <d>] [--stepover <d>] [--name <name>]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
-                     [--holes <x,y;x,y>] [--peck <d>]
+                     [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
   ocam operation remove <file> --id <id>
   ocam validate <file>
   ocam toolpaths <file> [--out report.json]
@@ -175,6 +175,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--height",
                     "--holes",
                     "--peck",
+                    "--island",
                 ],
                 &[],
             )?;
@@ -194,6 +195,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             if let Some(raw) = values.value("--holes") {
                 operation.holes = parse_holes(raw)?;
             }
+            operation.islands = values.values("--island").iter().map(|raw| parse_island(raw)).collect::<Result<_, _>>()?;
             print_json(&session(file)?.add_operation(operation)?)
         }
         "remove" => {
@@ -221,6 +223,17 @@ fn parse_holes(raw: &str) -> Result<Vec<Hole>, CamError> {
     Ok(holes)
 }
 
+fn parse_island(raw: &str) -> Result<Island, CamError> {
+    let parts: Vec<f64> =
+        raw.split(',').map(|value| value.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().map_err(|_| {
+            CamError::new("cli/invalid-option", format!("island `{raw}` must be an `x,y,width,height` quadruple"))
+        })?;
+    match parts.as_slice() {
+        [x, y, width, height] => Ok(Island::new(*x, *y, *width, *height)),
+        _ => Err(CamError::new("cli/invalid-option", format!("island `{raw}` must be an `x,y,width,height` quadruple"))),
+    }
+}
+
 fn session(file: &str) -> Result<OpenCam, CamError> {
     let mut session = OpenCam::new();
     session.open(Path::new(file))?;
@@ -240,23 +253,23 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<i32, CamError> {
 }
 
 struct Options {
-    map: HashMap<String, String>,
+    map: HashMap<String, Vec<String>>,
 }
 
 impl Options {
     fn parse(args: &[String], values: &[&str], flags: &[&str]) -> Result<Self, CamError> {
-        let mut map = HashMap::new();
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
         let mut index = 0;
         while index < args.len() {
             let argument = args[index].as_str();
             if flags.contains(&argument) {
-                map.insert(argument.to_string(), String::new());
+                map.entry(argument.to_string()).or_default().push(String::new());
                 index += 1;
             } else if values.contains(&argument) {
                 let value = args
                     .get(index + 1)
                     .ok_or_else(|| CamError::new("cli/missing-value", format!("option `{argument}` needs a value")))?;
-                map.insert(argument.to_string(), value.clone());
+                map.entry(argument.to_string()).or_default().push(value.clone());
                 index += 2;
             } else {
                 return Err(CamError::new("cli/unknown-option", format!("unknown option `{argument}`")));
@@ -266,7 +279,11 @@ impl Options {
     }
 
     fn value(&self, name: &str) -> Option<&str> {
-        self.map.get(name).map(String::as_str)
+        self.map.get(name).and_then(|entries| entries.last()).map(String::as_str)
+    }
+
+    fn values(&self, name: &str) -> &[String] {
+        self.map.get(name).map(Vec::as_slice).unwrap_or(&[])
     }
 
     fn require(&self, name: &str) -> Result<&str, CamError> {
