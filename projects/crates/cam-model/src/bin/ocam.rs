@@ -25,6 +25,7 @@ Usage:
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
                      [--path <x,y;x,y>] [--tabs <count,width,height>] [--closed] [--finish]
+                     (--shape rect|circle applies to contour and pocket; circle uses --width as the diameter)
   ocam operation remove <file> --id <id>
   ocam validate <file>
   ocam toolpaths <file> [--out report.json]

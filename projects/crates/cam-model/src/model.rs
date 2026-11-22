@@ -106,7 +106,7 @@ impl Tool {
 pub enum OperationKind {
     /// Raster facing of the whole stock top.
     Face,
-    /// Outside profile around a rectangle, offset by the cutter radius.
+    /// Outside profile around a rectangle or circle, offset by the cutter radius.
     Contour,
     /// Rectangular pocket cleared by a raster inside the cutter radius.
     Pocket,
@@ -209,10 +209,12 @@ impl Island {
     }
 }
 
-/// Holding tabs left standing along a `contour` profile.
+/// Holding tabs left standing along a rectangular `contour` profile.
 ///
-/// Tabs keep the part attached to the stock while the profile is cut. `count`
-/// tabs are spaced evenly around the profile perimeter; each tab leaves
+/// Tabs keep the part attached to the stock while the profile is cut and are
+/// not available on a circular contour, which rejects them with
+/// `operation/invalid`. `count` tabs are spaced evenly around the profile
+/// perimeter; each tab leaves
 /// `height` millimetres of material above the cut floor over a `width`
 /// millimetre chord of the path. Widths are millimetres and `count` is a number
 /// of tabs.
@@ -243,8 +245,9 @@ impl TabSettings {
 /// `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
 /// `engrave`, and `finish` only by `pocket`. `strategy` selects the rectangle
 /// clearing pattern: `raster` (the default) or `spiral` (concentric rectangles).
-/// `shape` selects the pocket outline: `rect` (the default) or `circle`, which
-/// uses `width` as the diameter and needs `height` equal to `width`.
+/// `shape` selects the `contour` or `pocket` outline: `rect` (the default) or
+/// `circle`, which uses `width` as the diameter, needs `height` equal to
+/// `width` and is offset outward by the cutter radius for a contour.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
@@ -276,16 +279,16 @@ pub struct Operation {
     /// vertical plunge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ramp: Option<f64>,
-    /// Lower-left corner X of the rectangle used by `contour` and `pocket`.
+    /// Lower-left corner X of the rectangle, or bounding-square X of a circle.
     #[serde(default)]
     pub x: f64,
-    /// Lower-left corner Y of the rectangle used by `contour` and `pocket`.
+    /// Lower-left corner Y of the rectangle, or bounding-square Y of a circle.
     #[serde(default)]
     pub y: f64,
-    /// Rectangle size along X.
+    /// Rectangle size along X; the diameter of a circular contour or pocket.
     #[serde(default)]
     pub width: f64,
-    /// Rectangle size along Y.
+    /// Rectangle size along Y; must equal `width` for a circle.
     #[serde(default)]
     pub height: f64,
     /// Hole centres of a `drill` operation.
@@ -309,11 +312,13 @@ pub struct Operation {
     /// `operation/invalid` by validation instead of a parse error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
-    /// Pocket outline: `rect` (default) or `circle`.
+    /// Contour or pocket outline: `rect` (default) or `circle`.
     ///
-    /// A circle uses `width` as its diameter and moves the cutter in concentric
-    /// rings. Kept as a string so an unknown value is reported as
-    /// `operation/invalid` by validation instead of a parse error.
+    /// A circle uses `width` as its diameter and needs `height` equal to
+    /// `width`. A circular contour offsets the circle outward by the cutter
+    /// radius; a circular pocket moves the cutter in concentric rings. Kept as
+    /// a string so an unknown value is reported as `operation/invalid` by
+    /// validation instead of a parse error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<String>,
     /// Holding tabs of a `contour` operation; `None` cuts the full profile.

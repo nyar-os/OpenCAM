@@ -226,10 +226,10 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
     match operation.shape.as_deref() {
         None | Some("rect") => {}
         Some("circle") => {
-            if operation.kind != OperationKind::Pocket {
+            if !matches!(operation.kind, OperationKind::Pocket | OperationKind::Contour) {
                 issues.push(Issue::error(
                     "operation/invalid",
-                    format!("operation `{}` shape `circle` is only supported by `pocket`", operation.id),
+                    format!("operation `{}` shape `circle` is only supported by `contour` and `pocket`", operation.id),
                 ));
             }
         }
@@ -261,7 +261,27 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
         OperationKind::Contour => {
             check_no_islands(operation, issues);
             check_rectangle(operation, document, issues);
-            if let Some(tabs) = operation.tabs {
+            if operation.shape.as_deref() == Some("circle") {
+                if operation.tabs.is_some() {
+                    issues.push(Issue::error(
+                        "operation/invalid",
+                        format!("operation `{}` uses tabs but a circular contour does not support them", operation.id),
+                    ));
+                }
+                if positive(operation.width)
+                    && positive(operation.height)
+                    && (operation.width - operation.height).abs() > EPSILON
+                {
+                    issues.push(Issue::error(
+                        "operation/circle-size",
+                        format!(
+                            "operation `{}` circular contour needs height equal to width, which is the diameter",
+                            operation.id
+                        ),
+                    ));
+                }
+            }
+            else if let Some(tabs) = operation.tabs {
                 check_tabs(operation, tabs, issues);
             }
             if !positive(tool.diameter) {

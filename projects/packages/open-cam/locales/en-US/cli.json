@@ -7,6 +7,7 @@
             "open-cam tool add <file> --id <id> --diameter <d> --spindle <rpm> --feed <f> [--flutes <n>] [--plunge <f>] [--number <n>] [--name <name>]",
             "open-cam tool remove <file> --id <id>",
             "open-cam operation add <file> --id <id> --kind face|contour|pocket|drill|engrave --tool <id> --depth <d> [--stepdown <d>] [--stepover <d>] [--ramp <mm>] [--strategy raster|spiral] [--shape rect|circle] [--x <x>] [--y <y>] [--width <w>] [--height <h>] [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]... [--path <x,y;x,y>] [--tabs <count,width,height>] [--closed] [--finish]",
+            "  --shape rect|circle: contour (outside profile) and pocket (concentric rings); circle uses --width as the diameter and needs --height equal to --width",
             "open-cam operation remove <file> --id <id>",
             "open-cam validate <file>",
             "open-cam toolpaths <file> [--out report.json]",

@@ -13,8 +13,9 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | rectangular stock, millimetres | ✅ supported |
 | tool table with diameter, flutes, spindle and feeds | ✅ supported |
 | `face` raster facing | ✅ supported |
-| `contour` outside profile, cutter-radius offset | ✅ supported |
-| `contour` holding tabs (`tabs`) | ✅ supported |
+| `contour` outside rectangular profile, cutter-radius offset | ✅ supported |
+| `contour` outside circular profile (`shape: "circle"`) | ✅ supported |
+| `contour` holding tabs (`tabs`, rectangles only) | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
@@ -55,7 +56,16 @@ The machine-readable version is printed by `open-cam capabilities` and by
    far edge of the tab and plunges back to `z`; the intervals between tabs are
    cut at the cutting feed, including any corners they span. Every level
    therefore emits exactly `count` lifts and `count` tab-end plunges, and no
-   cutting move crosses a tab.
+   cutting move crosses a tab. `shape: "circle"` turns the same operation into a
+   circular outside profile: `width` is the diameter, `height` must equal
+   `width` (otherwise `operation/circle-size`), and the tool centre follows the
+   circle of radius `width / 2 + r` centred at `(x + width / 2, y + height / 2)`.
+   The ring starts at angle 0 (+X) and runs counter-clockwise as 72 linear
+   cutting segments, closing at the cutting feed. Every level rapids to the
+   start at the clearance plane, enters with the plunge or the ramp and
+   retracts to the clearance plane, exactly like the rectangular contour. Tabs
+   are not supported on a circular contour and report `operation/invalid`; the
+   report adds `shape: "circle"` and leaves `loopCount` absent.
 5. **Pocket.** The raster runs between `x + r … x + width − r` and
    `y + r … y + height − r`; the validator rejects a pocket narrower than the
    tool so the shrunk rectangle can never invert.
@@ -110,10 +120,11 @@ The machine-readable version is printed by `open-cam capabilities` and by
     level depth. The rest of the level path is therefore unchanged and its cuts
     keep their full length. Every ramp move is a `cut` move, so `cutLength`,
     cycle time and G-code include it. The descent ends exactly at the level
-    depth, so no move goes below it. Only `contour` (including its tabbed form),
-    `pocket` (raster, spiral, circular or island-aware) and `engrave` accept a
-    ramp; every other kind reports `operation/invalid`, as does a ramp that is
-    not finite and positive. An island-aware pocket ramps only the first entry
+    depth, so no move goes below it. Only `contour` (rectangular, tabbed or
+    circular), `pocket` (raster, spiral, circular or island-aware) and
+    `engrave` accept a ramp; every other kind reports `operation/invalid`, as
+    does a ramp that is not finite and positive. An island-aware pocket ramps
+    only the first entry
     of each level and keeps the vertical re-entry of later spans; a contour
     keeps the vertical plunge at every tab end.
 12. **Pocket wall finish.** `finish: true` cuts one extra closed loop along the
@@ -149,7 +160,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for a rectangular `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; a circular contour rejects tabs and reports `operation/invalid`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -158,7 +169,7 @@ and `-0` is normalised to `0`.
 | `operation/island-overlap` | two expanded islands overlap, so the cutter cannot pass between them |
 | `operation/strategy-island` | a `spiral` pocket declares islands, or a `circle` pocket declares islands, which the strategy does not support |
 | `operation/strategy-circle` | a `circle` pocket declares an explicit `strategy`, which only `rect` pockets accept |
-| `operation/circle-size` | a `circle` pocket has `height` different from `width` (the diameter) |
+| `operation/circle-size` | a `circle` contour or pocket has `height` different from `width` (the diameter) |
 | `path/outside-stock` | a profile, pocket, hole or engrave path point leaves the stock |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
@@ -172,6 +183,7 @@ outside the stock) do not make `ok` false.
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
+| `tests/circle_contour.rs` | circular contour at exactly `width / 2 + r`, 72 counter-clockwise segments and closure per level, multiple levels, linear-only G-code, rectangular byte identity, tab rejection, circle-size mismatch, ramp depth, outside-stock, determinism and save/reopen |
 | `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, closed square perimeter and extra move, open/closed move difference, closed first/last coincidence rejection, non-engrave `closed` rejection, default document byte identity, validation codes, G-code, empty `path` serialization |
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
@@ -184,8 +196,9 @@ outside the stock) do not make `ok` false.
 ## Limitations
 
 - Rasters are axis-aligned and spiral pockets are concentric rectangles; there
-  is no trochoidal, adaptive or arc-following strategy. Circular pockets are
-  approximated by 72 linear segments per ring, not by `G2`/`G3` arcs.
+  is no trochoidal, adaptive or arc-following strategy. Circular pockets and
+  circular contours are approximated by 72 linear segments per ring, not by
+  `G2`/`G3` arcs.
 - Spiral pockets do not support islands and reject them with
   `operation/strategy-island`; use the raster strategy when islands are needed.
 - Circular pockets support only concentric rings: an explicit `strategy` is
@@ -194,10 +207,12 @@ outside the stock) do not make `ok` false.
 - Pockets are rectangles or full circles; islands are rectangles inside a
   rectangular pocket. Arbitrary pocket outlines, fillets and adaptive corner
   clearing are not supported.
-- Contours are rectangles with a constant cutter-radius offset; no arcs or
-  lead-in/lead-out moves. Holding tabs are evenly spaced along that rectangle
-  only: individual tab positions, tab shapes other than a chord of the profile
-  and a separate tab-removal pass are not supported.
+- Contours are rectangles or full circles with a constant cutter-radius offset;
+  a circular contour is approximated by 72 linear segments, not by `G2`/`G3`
+  arcs, and has no lead-in/lead-out moves. Holding tabs are evenly spaced along
+  the rectangle only and a circular contour rejects them with
+  `operation/invalid`: individual tab positions, tab shapes other than a chord
+  of the profile and a separate tab-removal pass are not supported.
 - Engraving follows the supplied polyline exactly: no cutter-radius
   compensation, curve fitting, tangency, lead-in or lead-out moves. A closed
   polyline only adds a straight cut back to its first point. Holes and islands

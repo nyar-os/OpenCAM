@@ -16,7 +16,7 @@ export type OperationKind = 'face' | 'contour' | 'pocket' | 'drill' | 'engrave';
 /** Pocket clearing pattern: axis-aligned raster or concentric rectangles. */
 export type PocketStrategy = 'raster' | 'spiral';
 
-/** Pocket outline: an axis-aligned rectangle (default) or a circle. */
+/** Contour or pocket outline: an axis-aligned rectangle (default) or a circle. */
 export type PocketShape = 'rect' | 'circle';
 
 /** Export formats `exportDocument()` can write. */
@@ -107,9 +107,9 @@ export interface Operation {
     readonly peck: number | null;
     /** Pocket clearing pattern; absent means `raster`. */
     readonly strategy?: PocketStrategy;
-    /** Pocket outline; absent means `rect`. */
+    /** Contour or pocket outline; absent means `rect`. */
     readonly shape?: PocketShape;
-    /** Holding tabs of a contour operation; absent cuts the full profile. */
+    /** Holding tabs of a rectangular contour operation; absent cuts the full profile. */
     readonly tabs?: TabSettings;
     /** Adds one wall finish loop per Z level to a pocket operation. */
     readonly finish?: boolean;
@@ -164,7 +164,7 @@ export interface OperationPath {
     readonly kind: OperationKind;
     /** Present only for a spiral pocket. */
     readonly strategy?: PocketStrategy;
-    /** Present only for a circular pocket. */
+    /** Present only for a circular pocket or circular contour. */
     readonly shape?: 'circle';
     readonly tool: string;
     readonly moves: number;
@@ -269,9 +269,9 @@ export interface OperationRequest {
     readonly peck?: number;
     /** Pocket clearing pattern; `raster` when omitted. */
     readonly strategy?: PocketStrategy;
-    /** Pocket outline; `rect` when omitted. `circle` uses `width` as the diameter. */
+    /** Contour or pocket outline; `rect` when omitted. `circle` uses `width` as the diameter. */
     readonly shape?: PocketShape;
-    /** Holding tabs of a contour operation; omitted cuts the full profile. */
+    /** Holding tabs of a rectangular contour operation; omitted cuts the full profile. */
     readonly tabs?: TabSettings;
     /** Adds one wall finish loop per Z level to a pocket operation; `false` when omitted. */
     readonly finish?: boolean;

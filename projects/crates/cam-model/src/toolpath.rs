@@ -63,7 +63,7 @@ pub struct OperationPath {
     /// Pocket strategy that generated this path; omitted for raster pockets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
-    /// Pocket outline that generated this path; omitted for rectangular pockets.
+    /// Circular outline that generated this path; omitted for rectangles.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shape: Option<String>,
     /// Tool identifier.
@@ -136,6 +136,9 @@ pub fn generate(document: &CamDocument) -> Result<ToolpathReport, CamError> {
         let mut builder = Builder::new(Point::new(0.0, 0.0, safe_z));
         match operation.kind {
             OperationKind::Face => face(operation, tool, &document.stock, safe_z, &mut builder),
+            OperationKind::Contour if operation.shape.as_deref() == Some("circle") => {
+                contour_circle(operation, tool, document.stock.height, safe_z, &mut builder);
+            }
             OperationKind::Contour => contour(operation, tool, document.stock.height, safe_z, &mut builder),
             OperationKind::Pocket if operation.shape.as_deref() == Some("circle") => {
                 pocket_circle(operation, tool, document.stock.height, safe_z, &mut builder);
@@ -233,6 +236,48 @@ fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
             Some(tabs) => contour_with_tabs(&profile, tabs, z, safe_z, tool, builder),
         }
         builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
+    }
+}
+
+/// Circular contour: one closed ring offset outward by the cutter radius.
+///
+/// `width` is the diameter and `height` equals it, so the part is centred at
+/// `(x + width / 2, y + height / 2)` and the tool centre follows the circle of
+/// radius `width / 2 + r`. The ring starts at angle 0 (+X) and runs
+/// counter-clockwise as [`RING_SEGMENTS`] linear cutting segments, closing at
+/// the cutting feed. Every depth level rapids to the start at the clearance
+/// plane, enters with the vertical plunge or the `ramp` entry and retracts to
+/// the clearance plane afterwards, exactly like the rectangular contour.
+fn contour_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
+    let path_radius = operation.width / 2.0 + tool.radius();
+    let centre = Point::new(operation.x + operation.width / 2.0, operation.y + operation.height / 2.0, 0.0);
+    let chord = std::f64::consts::TAU / RING_SEGMENTS as f64;
+    let start = Point::new(centre.x + path_radius, centre.y, safe_z);
+
+    for depth in level_depths(operation.depth, operation.stepdown) {
+        let z = stock_height - depth;
+        builder.rapid_to(start);
+        match operation.ramp {
+            Some(ramp) => ramp_entry(
+                builder,
+                start,
+                Point::new(centre.x + path_radius * chord.cos(), centre.y + path_radius * chord.sin(), safe_z),
+                z,
+                ramp,
+                tool.plunge_feed,
+                tool.feed,
+            ),
+            None => {
+                builder.feed_to(Point::new(start.x, start.y, z), MoveKind::Plunge, tool.plunge_feed);
+            }
+        }
+        for step in 1..=RING_SEGMENTS {
+            let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
+            let point = Point::new(centre.x + path_radius * angle.cos(), centre.y + path_radius * angle.sin(), z);
+            builder.feed_to(point, MoveKind::Cut, tool.feed);
+        }
+        builder.feed_to(Point::new(start.x, start.y, z), MoveKind::Cut, tool.feed);
+        builder.rapid_to(start);
     }
 }
 
@@ -749,12 +794,14 @@ impl Builder {
 
     fn finish(mut self, operation: &Operation) -> OperationPath {
         let spiral = operation.kind == OperationKind::Pocket && operation.strategy.as_deref() == Some("spiral");
-        let circle = operation.kind == OperationKind::Pocket && operation.shape.as_deref() == Some("circle");
+        let circular = operation.shape.as_deref() == Some("circle")
+            && matches!(operation.kind, OperationKind::Pocket | OperationKind::Contour);
+        let ringed = operation.kind == OperationKind::Pocket && circular;
         OperationPath {
             operation: operation.id.clone(),
             kind: operation.kind,
             strategy: spiral.then(|| "spiral".to_string()),
-            shape: circle.then(|| "circle".to_string()),
+            shape: circular.then(|| "circle".to_string()),
             tool: operation.tool.clone(),
             moves: self.segments.len(),
             cut_length: self.cut_length,
@@ -764,7 +811,7 @@ impl Builder {
             island_count: self.island_count,
             skipped_length: self.skipped_length,
             skipped_segments: self.skipped_segments,
-            loop_count: (spiral || circle).then_some(self.loop_count),
+            loop_count: (spiral || ringed).then_some(self.loop_count),
             segments: std::mem::take(&mut self.segments),
         }
     }

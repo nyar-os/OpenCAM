@@ -13,7 +13,7 @@ TypeScript. The same document always produces the same moves, byte for byte.
 The engine implements four strategies:
 
 - **face** — raster the whole stock top with a controllable stepover;
-- **contour** — mill an outside rectangular profile, offset by the cutter radius;
+- **contour** — mill an outside rectangular or circular profile, offset by the cutter radius;
 - **pocket** — clear a rectangular pocket with a raster or spiral, or a circular
   pocket with concentric rings, inside the cutter radius;
 - **drill** — emit `G81`/`G83` cycles over a list of hole centres.

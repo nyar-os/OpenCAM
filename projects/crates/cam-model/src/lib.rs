@@ -4,10 +4,10 @@
 //!
 //! * one rectangular stock block, measured in millimetres;
 //! * a tool table with diameter, flute count, spindle speed and cutting feeds;
-//! * five machining strategies — raster facing, outside contouring, pocket
-//!   clearing (rectangular raster or spiral, circular concentric rings,
-//!   optionally around rectangular islands), drilling cycles and polyline
-//!   engraving;
+//! * five machining strategies — raster facing, outside contouring (rectangle
+//!   or circle), pocket clearing (rectangular raster or spiral, circular
+//!   concentric rings, optionally around rectangular islands), drilling cycles
+//!   and polyline engraving;
 //! * multi-pass Z depth control through `stepdown`, and raster spacing through
 //!   `stepover`;
 //! * a deterministic toolpath generator with cutting/rapid lengths and cycle
@@ -50,6 +50,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
   "operations": {
     "face": "supported",
     "contour": "supported",
+    "contourCircle": "supported",
     "tabs": "supported",
     "pocket": "supported",
     "pocketRect": "supported",
