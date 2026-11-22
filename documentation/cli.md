@@ -1,0 +1,146 @@
+# Command line
+
+`open-cam` is the packaged CLI. The Rust binary `ocam` accepts the same commands
+for development and prints the same JSON.
+
+```text
+open-cam <command> [options]
+```
+
+Exit codes: `0` success, `1` invalid input or an unmachineable document, `2` the
+capability is not implemented.
+
+## create
+
+```shell
+open-cam create <file.ocam>
+```
+
+Writes a new document with `open-cam` format version 1, units `mm`, revision 0,
+a 100 × 100 × 10 mm stock and no tools. An existing file is rejected with
+`file/exists`.
+
+## stock
+
+```shell
+open-cam stock <file> --width <w> --depth <d> --height <h>
+```
+
+Replaces the stock; all three values are required and must be positive.
+
+## tool add
+
+```shell
+open-cam tool add <file> --id <id> --diameter <d> --spindle <rpm> --feed <f>
+                     [--flutes <n>] [--plunge <f>] [--number <n>] [--name <name>]
+```
+
+`--flutes` defaults to 2, `--number` to 1, `--name` to the id and `--plunge` to
+`feed / 3`. Adding a duplicate id reports `tool/duplicate-id`.
+
+## tool remove
+
+```shell
+open-cam tool remove <file> --id <id>
+```
+
+A tool referenced by an operation reports `tool/in-use`; an unknown id reports
+`tool/unknown-id`.
+
+## operation add
+
+```shell
+open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
+                      [--stepdown <d>] [--stepover <d>] [--name <name>]
+                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
+                      [--holes <x,y;x,y>] [--peck <d>]
+```
+
+| Kind | Geometry |
+|------|----------|
+| `face` | whole stock top; optional `--stepover` |
+| `contour` | `--x --y --width --height`, milled outside by the cutter radius |
+| `pocket` | `--x --y --width --height`, raster inside the cutter radius |
+| `drill` | `--holes "x,y;x,y"`, optional `--peck` |
+
+`--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
+the tool diameter for facing and 60 % for pocketing. The operation is validated
+against the stock before it is saved.
+
+## operation remove
+
+```shell
+open-cam operation remove <file> --id <id>
+```
+
+## validate
+
+```shell
+open-cam validate <file>
+```
+
+Prints `{ "ok": true|false, "issues": [...] }`. Each issue has `code`,
+`severity` and `message`.
+
+## toolpaths
+
+```shell
+open-cam toolpaths <file> [--out report.json]
+```
+
+Prints the toolpath report and optionally writes the same JSON. The report
+contains `safeZ`, `rapidFeed`, total `cutLength`, `rapidLength`,
+`estimatedSeconds` and one entry per operation with every move.
+
+## gcode
+
+```shell
+open-cam gcode <file> [--out program.nc]
+```
+
+Prints the G-code program and optionally writes it. The program is
+deterministic; repeated runs are byte-identical.
+
+## export
+
+```shell
+open-cam export <file> --format gcode|json|csv|md --out <path>
+```
+
+| Format | Content |
+|--------|---------|
+| `gcode` | the complete program |
+| `json` | the toolpath report |
+| `csv` | one row per move: operation, kind, from/to, length, feed |
+| `md` | a Markdown stock/tool/operation summary |
+
+`step` and `dxf` are declared but unimplemented and exit with code `2`.
+
+## report
+
+```shell
+open-cam report <file>
+```
+
+Prints the document summary, validation, toolpaths and the G-code line count.
+
+## capabilities
+
+```shell
+open-cam capabilities
+```
+
+Prints the machine-readable capability matrix.
+
+## Examples
+
+```shell
+open-cam create bracket.ocam
+open-cam stock bracket.ocam --width 120 --depth 80 --height 12
+open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 --plunge 300
+open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
+    --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40
+open-cam validate bracket.ocam
+open-cam toolpaths bracket.ocam
+open-cam gcode bracket.ocam --out bracket.nc
+```
