@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
 import { OpenCAM } from './open-cam.js';
-import type { ExportFormat, Hole, Island, OperationKind, PocketShape, PocketStrategy } from './types.js';
+import type { ExportFormat, Hole, Island, OperationKind, PathPoint, PocketShape, PocketStrategy } from './types.js';
 
 interface CliLocale {
     readonly cli: {
@@ -148,7 +148,7 @@ function exportFormat(value: string): ExportFormat {
 }
 
 function operationKind(value: string): OperationKind {
-    if (value === 'face' || value === 'contour' || value === 'pocket' || value === 'drill') {
+    if (value === 'face' || value === 'contour' || value === 'pocket' || value === 'drill' || value === 'engrave') {
         return value;
     }
     throw new OpenCAMError('operation/unknown-kind', `unknown operation kind \`${value}\``);
@@ -171,6 +171,21 @@ function parseHoles(raw: string): Hole[] {
             const y = Number(parts[1]);
             if (parts.length !== 2 || !Number.isFinite(x) || !Number.isFinite(y)) {
                 throw new OpenCAMError('cli/invalid-number', `hole \`${entry}\` must be an \`x,y\` pair`);
+            }
+            return { x, y };
+        });
+}
+
+function parsePath(raw: string): PathPoint[] {
+    return raw
+        .split(';')
+        .filter((entry) => entry.trim().length > 0)
+        .map((entry) => {
+            const parts = entry.split(',');
+            const x = Number(parts[0]);
+            const y = Number(parts[1]);
+            if (parts.length !== 2 || !Number.isFinite(x) || !Number.isFinite(y)) {
+                throw new OpenCAMError('cli/invalid-number', `path point \`${entry}\` must be an \`x,y\` pair`);
             }
             return { x, y };
         });
@@ -321,13 +336,14 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             'operation add <file>',
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover',
-                '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island',
+                '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island', '--path',
             ],
             [],
             async (document, parsed) => {
                 const depth = requiredNumber(parsed, '--depth');
                 const id = required(parsed, '--id');
                 const holes = parsed.options.get('--holes');
+                const path = parsed.options.get('--path');
                 const strategy = parsed.options.get('--strategy');
                 const shape = parsed.options.get('--shape');
                 print(
@@ -346,6 +362,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         width: number(parsed, '--width') ?? 0,
                         height: number(parsed, '--height') ?? 0,
                         holes: holes === undefined ? [] : parseHoles(holes),
+                        path: path === undefined ? [] : parsePath(path),
                         islands: parseIslands(parsed.repeated.get('--island') ?? []),
                         peck: number(parsed, '--peck'),
                     }),

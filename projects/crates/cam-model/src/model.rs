@@ -112,6 +112,8 @@ pub enum OperationKind {
     Pocket,
     /// Drilling cycle at the listed hole centres.
     Drill,
+    /// Engraving along the listed polyline, without cutter-radius compensation.
+    Engrave,
 }
 
 impl OperationKind {
@@ -122,6 +124,7 @@ impl OperationKind {
             Self::Contour => "contour",
             Self::Pocket => "pocket",
             Self::Drill => "drill",
+            Self::Engrave => "engrave",
         }
     }
 }
@@ -135,9 +138,10 @@ impl std::str::FromStr for OperationKind {
             "contour" => Ok(Self::Contour),
             "pocket" => Ok(Self::Pocket),
             "drill" => Ok(Self::Drill),
+            "engrave" => Ok(Self::Engrave),
             other => Err(crate::CamError::new(
                 "operation/unknown-kind",
-                format!("unknown operation kind `{other}`; only face, contour, pocket or drill is supported"),
+                format!("unknown operation kind `{other}`; only face, contour, pocket, drill or engrave is supported"),
             )),
         }
     }
@@ -155,6 +159,27 @@ pub struct Hole {
 
 impl Hole {
     /// Creates a hole centre.
+    pub fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+}
+
+/// One vertex of the polyline engraved by an `engrave` operation.
+///
+/// Points are millimetres in the document frame and are connected in order by
+/// straight cutting moves. The cutter follows the polyline itself, so no
+/// cutter-radius compensation is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathPoint {
+    /// X coordinate.
+    pub x: f64,
+    /// Y coordinate.
+    pub y: f64,
+}
+
+impl PathPoint {
+    /// Creates one polyline vertex.
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
@@ -188,8 +213,9 @@ impl Island {
 ///
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
-/// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`, and
-/// `peck` only by `drill`. `strategy` selects the rectangle clearing pattern:
+/// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
+/// `peck` only by `drill`, and `path` only by `engrave`. `strategy` selects the
+/// rectangle clearing pattern:
 /// `raster` (the default) or `spiral` (concentric rectangles). `shape` selects
 /// the pocket outline: `rect` (the default) or `circle`, which uses `width` as
 /// the diameter and needs `height` equal to `width`.
@@ -226,6 +252,9 @@ pub struct Operation {
     /// Hole centres of a `drill` operation.
     #[serde(default)]
     pub holes: Vec<Hole>,
+    /// Polyline vertices of an `engrave` operation, connected in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<PathPoint>,
     /// Rectangular islands left standing by a `pocket` operation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub islands: Vec<Island>,
@@ -263,6 +292,7 @@ impl Operation {
             width: 0.0,
             height: 0.0,
             holes: Vec::new(),
+            path: Vec::new(),
             islands: Vec::new(),
             peck: None,
             strategy: None,

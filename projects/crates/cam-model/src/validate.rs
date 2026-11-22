@@ -296,6 +296,16 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                 check_islands(operation, tool, issues);
             }
         }
+        OperationKind::Engrave => {
+            check_no_islands(operation, issues);
+            if !operation.holes.is_empty() {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` uses holes but only `drill` supports them", operation.id),
+                ));
+            }
+            validate_polyline(operation, document, issues);
+        }
         OperationKind::Drill => {
             check_no_islands(operation, issues);
             if operation.holes.is_empty() {
@@ -344,6 +354,47 @@ fn check_rectangle(operation: &Operation, document: &CamDocument, issues: &mut V
             "path/outside-stock",
             format!("operation `{}` rectangle leaves the stock boundary", operation.id),
         ));
+    }
+}
+
+/// Checks the polyline of an `engrave` operation.
+///
+/// A polyline needs at least two points, every point must lie on the stock and
+/// adjacent points may not coincide. A repeated adjacent point is rejected
+/// rather than skipped, so a caller never loses a vertex silently.
+fn validate_polyline(operation: &Operation, document: &CamDocument, issues: &mut Vec<Issue>) {
+    if operation.path.len() < 2 {
+        issues.push(Issue::error("operation/invalid", format!("operation `{}` needs at least two path points", operation.id)));
+        return;
+    }
+    for (index, point) in operation.path.iter().enumerate() {
+        let inside = point.x.is_finite()
+            && point.y.is_finite()
+            && point.x >= -EPSILON
+            && point.y >= -EPSILON
+            && point.x <= document.stock.width + EPSILON
+            && point.y <= document.stock.depth + EPSILON;
+        if !inside {
+            issues.push(Issue::error(
+                "path/outside-stock",
+                format!("operation `{}` path point {} at ({}, {}) is outside the stock", operation.id, index, point.x, point.y),
+            ));
+        }
+    }
+    for (index, pair) in operation.path.windows(2).enumerate() {
+        let dx = pair[1].x - pair[0].x;
+        let dy = pair[1].y - pair[0].y;
+        if (dx * dx + dy * dy).sqrt() <= EPSILON {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!(
+                    "operation `{}` path points {} and {} coincide; remove the duplicate point",
+                    operation.id,
+                    index,
+                    index + 1
+                ),
+            ));
+        }
     }
 }
 

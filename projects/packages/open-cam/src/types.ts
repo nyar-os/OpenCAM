@@ -11,7 +11,7 @@
 export type Units = 'mm';
 
 /** Machining strategy of one operation. */
-export type OperationKind = 'face' | 'contour' | 'pocket' | 'drill';
+export type OperationKind = 'face' | 'contour' | 'pocket' | 'drill' | 'engrave';
 
 /** Pocket clearing pattern: axis-aligned raster or concentric rectangles. */
 export type PocketStrategy = 'raster' | 'spiral';
@@ -54,6 +54,12 @@ export interface Hole {
     readonly y: number;
 }
 
+/** One vertex of the polyline engraved by an `engrave` operation. */
+export interface PathPoint {
+    readonly x: number;
+    readonly y: number;
+}
+
 /** One rectangular island left standing inside a pocket. */
 export interface Island {
     readonly x: number;
@@ -79,6 +85,8 @@ export interface Operation {
     readonly width: number;
     readonly height: number;
     readonly holes: readonly Hole[];
+    /** Polyline vertices of an engrave operation, connected in order. */
+    readonly path?: readonly PathPoint[];
     /** Rectangular islands left standing by a pocket operation. */
     readonly islands?: readonly Island[];
     /** Peck increment of a drill operation; `null` uses a single plunge. */
@@ -232,6 +240,8 @@ export interface OperationRequest {
     readonly width?: number;
     readonly height?: number;
     readonly holes?: readonly Hole[];
+    /** Polyline vertices of an engrave operation, connected in order. */
+    readonly path?: readonly PathPoint[];
     /** Rectangular islands left standing by a pocket operation. */
     readonly islands?: readonly Island[];
     readonly peck?: number;

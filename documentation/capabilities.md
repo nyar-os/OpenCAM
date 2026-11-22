@@ -19,6 +19,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `pocket` islands (rectangular) | ✅ supported |
 | `pocket` circle (concentric ring) clearing | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
+| `engrave` along a polyline (no cutter-radius compensation) | ✅ supported |
 | multi-pass Z depth (`stepdown`) | ✅ supported |
 | raster spacing (`stepover`) | ✅ supported |
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
@@ -78,7 +79,13 @@ The machine-readable version is printed by `open-cam capabilities` and by
 9. **Drilling.** Each hole is a rapid to the centre, a plunge to
    `height − depth`, and a rapid retract. G-code uses `G81` (or `G83` with `Q` for
    peck) at the clearance plane `R` and cancels the cycle with `G80`.
-10. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+10. **Engraving.** Every depth level rapids to the first path point at the
+    clearance plane, plunges at `plungeFeed` and connects each consecutive pair
+    of path points with one cutting move. The tool then rapids back to the
+    clearance plane above the last point. The cutter follows the polyline centre
+    line, so no cutter-radius compensation is applied. Adjacent duplicate points
+    are rejected by validation instead of being silently skipped.
+11. **Metrics.** Cutting length and time use the cutting feed; rapid length and
     time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
 ## G-code
@@ -97,7 +104,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes or peck are invalid |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck or an engrave polyline are invalid; an engrave polyline needs at least two points and may not repeat an adjacent point |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -107,7 +114,7 @@ and `-0` is normalised to `0`.
 | `operation/strategy-island` | a `spiral` pocket declares islands, or a `circle` pocket declares islands, which the strategy does not support |
 | `operation/strategy-circle` | a `circle` pocket declares an explicit `strategy`, which only `rect` pockets accept |
 | `operation/circle-size` | a `circle` pocket has `height` different from `width` (the diameter) |
-| `path/outside-stock` | a profile, pocket or hole leaves the stock |
+| `path/outside-stock` | a profile, pocket, hole or engrave path point leaves the stock |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
 outside the stock) do not make `ok` false.
@@ -120,6 +127,7 @@ outside the stock) do not make `ok` false.
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
+| `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, validation codes, G-code, empty `path` serialization |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -140,6 +148,9 @@ outside the stock) do not make `ok` false.
   clearing are not supported.
 - Contours are rectangles with a constant cutter-radius offset; no arcs or
   lead-in/lead-out moves.
+- Engraving follows the supplied polyline exactly: no cutter-radius
+  compensation, curve fitting, tangency, lead-in or lead-out moves. Holes and
+  islands are not supported by an engrave operation.
 - The validator checks geometry against the stock, not against fixtures, clamps
   or machine travel limits.
 - Cycle time is a kinematic estimate, not a machine simulation.

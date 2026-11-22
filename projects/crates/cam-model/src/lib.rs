@@ -4,9 +4,10 @@
 //!
 //! * one rectangular stock block, measured in millimetres;
 //! * a tool table with diameter, flute count, spindle speed and cutting feeds;
-//! * four machining strategies — raster facing, outside contouring, pocket
+//! * five machining strategies — raster facing, outside contouring, pocket
 //!   clearing (rectangular raster or spiral, circular concentric rings,
-//!   optionally around rectangular islands) and drilling cycles;
+//!   optionally around rectangular islands), drilling cycles and polyline
+//!   engraving;
 //! * multi-pass Z depth control through `stepdown`, and raster spacing through
 //!   `stepover`;
 //! * a deterministic toolpath generator with cutting/rapid lengths and cycle
@@ -33,7 +34,7 @@ pub use crate::{
     error::{CamError, not_implemented},
     export::{markdown, segments_csv, write_atomic},
     gcode::render as render_gcode,
-    model::{CamDocument, FORMAT, Hole, Island, Operation, OperationKind, Point, Stock, Tool, UNITS, VERSION},
+    model::{CamDocument, FORMAT, Hole, Island, Operation, OperationKind, PathPoint, Point, Stock, Tool, UNITS, VERSION},
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
     validate::{Issue, Severity, ValidationReport},
@@ -53,7 +54,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "pocketSpiral": "supported",
     "pocketIslands": "supported",
     "drill": "supported",
-    "engrave": "unsupported",
+    "engrave": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"

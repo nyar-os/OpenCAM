@@ -7,7 +7,7 @@
 
 use std::{collections::HashMap, env, path::Path, process};
 
-use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, Stock, Tool};
+use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, Tool};
 
 const USAGE: &str = "\
 ocam - OpenCAM 2.5-axis toolpath and G-code generator (millimetres)
@@ -18,12 +18,13 @@ Usage:
   ocam tool add <file> --id <id> --diameter <d> --flutes <n> --spindle <rpm> --feed <f>
                      [--plunge <f>] [--number <n>] [--name <name>]
   ocam tool remove <file> --id <id>
-  ocam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id>
+  ocam operation add <file> --id <id> --kind face|contour|pocket|drill|engrave --tool <id>
                      --depth <d> [--stepdown <d>] [--stepover <d>] [--name <name>]
                      [--strategy raster|spiral]
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
+                     [--path <x,y;x,y>]
   ocam operation remove <file> --id <id>
   ocam validate <file>
   ocam toolpaths <file> [--out report.json]
@@ -181,6 +182,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--holes",
                     "--peck",
                     "--island",
+                    "--path",
                 ],
                 &[],
             )?;
@@ -201,6 +203,9 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             operation.peck = values.optional_number("--peck")?;
             if let Some(raw) = values.value("--holes") {
                 operation.holes = parse_holes(raw)?;
+            }
+            if let Some(raw) = values.value("--path") {
+                operation.path = parse_path(raw)?;
             }
             operation.islands = values.values("--island").iter().map(|raw| parse_island(raw)).collect::<Result<_, _>>()?;
             print_json(&session(file)?.add_operation(operation)?)
@@ -228,6 +233,22 @@ fn parse_holes(raw: &str) -> Result<Vec<Hole>, CamError> {
         }
     }
     Ok(holes)
+}
+
+fn parse_path(raw: &str) -> Result<Vec<PathPoint>, CamError> {
+    let mut points = Vec::new();
+    for entry in raw.split(';').filter(|entry| !entry.trim().is_empty()) {
+        let mut parts = entry.split(',');
+        let x = parts.next().and_then(|value| value.trim().parse::<f64>().ok());
+        let y = parts.next().and_then(|value| value.trim().parse::<f64>().ok());
+        match (x, y) {
+            (Some(x), Some(y)) if parts.next().is_none() => points.push(PathPoint::new(x, y)),
+            _ => {
+                return Err(CamError::new("cli/invalid-option", format!("path point `{entry}` must be an `x,y` pair")));
+            }
+        }
+    }
+    Ok(points)
 }
 
 fn parse_island(raw: &str) -> Result<Island, CamError> {
