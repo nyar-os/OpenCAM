@@ -36,6 +36,11 @@ fn render_with(document: &CamDocument, report: &ToolpathReport) -> String {
         };
         let tool = document.tools.iter().find(|tool| tool.id == operation.tool);
         lines.push(format!("(operation {} - {})", operation.id, operation.kind.as_str()));
+        if operation.kind == OperationKind::Contour {
+            if let Some(tabs) = operation.tabs {
+                lines.push(format!("(tabs {} x {} mm wide, {} mm high)", tabs.count, number(tabs.width), number(tabs.height)));
+            }
+        }
         if let Some(tool) = tool {
             lines.push(format!("T{} M6", tool.number));
             lines.push(format!("S{} M3", number(tool.spindle)));

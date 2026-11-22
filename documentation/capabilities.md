@@ -14,6 +14,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | tool table with diameter, flutes, spindle and feeds | ✅ supported |
 | `face` raster facing | ✅ supported |
 | `contour` outside profile, cutter-radius offset | ✅ supported |
+| `contour` holding tabs (`tabs`) | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
@@ -44,7 +45,14 @@ The machine-readable version is printed by `open-cam capabilities` and by
    plunges at `plungeFeed`, zig-zags across the full stock width, steps over at
    the cutting feed and retracts to the clearance plane.
 4. **Contour.** The tool centre follows the rectangle offset outward by
-   `diameter / 2`, closing all four edges at every depth level.
+   `diameter / 2`, closing all four edges at every depth level. With holding
+   tabs the perimeter is parameterised from the lower-left corner and `count`
+   tabs are centred in equal shares of it. Over each tab interval the cutter
+   lifts to `z + height` (capped at `safe_z`), rapids along the perimeter to the
+   far edge of the tab and plunges back to `z`; the intervals between tabs are
+   cut at the cutting feed, including any corners they span. Every level
+   therefore emits exactly `count` lifts and `count` tab-end plunges, and no
+   cutting move crosses a tab.
 5. **Pocket.** The raster runs between `x + r … x + width − r` and
    `y + r … y + height − r`; the validator rejects a pocket narrower than the
    tool so the shrunk rectangle can never invert.
@@ -104,7 +112,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck or an engrave polyline are invalid; an engrave polyline needs at least two points and may not repeat an adjacent point |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs or an engrave polyline are invalid; an engrave polyline needs at least two points and may not repeat an adjacent point; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -128,6 +136,7 @@ outside the stock) do not make `ok` false.
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
 | `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, validation codes, G-code, empty `path` serialization |
+| `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -147,7 +156,9 @@ outside the stock) do not make `ok` false.
   rectangular pocket. Arbitrary pocket outlines, fillets and adaptive corner
   clearing are not supported.
 - Contours are rectangles with a constant cutter-radius offset; no arcs or
-  lead-in/lead-out moves.
+  lead-in/lead-out moves. Holding tabs are evenly spaced along that rectangle
+  only: individual tab positions, tab shapes other than a chord of the profile
+  and a separate tab-removal pass are not supported.
 - Engraving follows the supplied polyline exactly: no cutter-radius
   compensation, curve fitting, tangency, lead-in or lead-out moves. Holes and
   islands are not supported by an engrave operation.

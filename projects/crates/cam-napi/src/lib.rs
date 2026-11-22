@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, Tool};
+use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool};
 use serde::Serialize;
 use serde_json::Value;
 use wae::{CallContext, Error, JsValue, Result, function, register_module};
@@ -223,6 +223,18 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
             ));
         }
         operation.islands = parsed;
+    }
+    match request.get("tabs") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(_)) => {
+            let tabs = request.get("tabs").expect("checked object");
+            operation.tabs = Some(TabSettings::new(
+                optional_u32(tabs, "count")?.ok_or_else(|| argument_error("`tabs.count` is required"))?,
+                required_number_field(tabs, "width")?,
+                required_number_field(tabs, "height")?,
+            ));
+        }
+        Some(_) => return Err(argument_error("`tabs` must be an object")),
     }
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;

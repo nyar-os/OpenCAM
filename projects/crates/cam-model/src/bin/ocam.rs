@@ -7,7 +7,7 @@
 
 use std::{collections::HashMap, env, path::Path, process};
 
-use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, Tool};
+use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool};
 
 const USAGE: &str = "\
 ocam - OpenCAM 2.5-axis toolpath and G-code generator (millimetres)
@@ -24,7 +24,7 @@ Usage:
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
-                     [--path <x,y;x,y>]
+                     [--path <x,y;x,y>] [--tabs <count,width,height>]
   ocam operation remove <file> --id <id>
   ocam validate <file>
   ocam toolpaths <file> [--out report.json]
@@ -183,6 +183,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--peck",
                     "--island",
                     "--path",
+                    "--tabs",
                 ],
                 &[],
             )?;
@@ -206,6 +207,9 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             }
             if let Some(raw) = values.value("--path") {
                 operation.path = parse_path(raw)?;
+            }
+            if let Some(raw) = values.value("--tabs") {
+                operation.tabs = Some(parse_tabs(raw)?);
             }
             operation.islands = values.values("--island").iter().map(|raw| parse_island(raw)).collect::<Result<_, _>>()?;
             print_json(&session(file)?.add_operation(operation)?)
@@ -260,6 +264,19 @@ fn parse_island(raw: &str) -> Result<Island, CamError> {
         [x, y, width, height] => Ok(Island::new(*x, *y, *width, *height)),
         _ => Err(CamError::new("cli/invalid-option", format!("island `{raw}` must be an `x,y,width,height` quadruple"))),
     }
+}
+
+fn parse_tabs(raw: &str) -> Result<TabSettings, CamError> {
+    let parts: Vec<&str> = raw.split(',').map(str::trim).collect();
+    if parts.len() != 3 {
+        return Err(CamError::new("cli/invalid-option", format!("tabs `{raw}` must be a `count,width,height` triple")));
+    }
+    let count = parts[0].parse::<u32>().map_err(|_| {
+        CamError::new("cli/invalid-option", format!("tabs count `{}` must be a non-negative integer", parts[0]))
+    })?;
+    let width = parse_number("--tabs width", parts[1])?;
+    let height = parse_number("--tabs height", parts[2])?;
+    Ok(TabSettings::new(count, width, height))
 }
 
 fn session(file: &str) -> Result<OpenCam, CamError> {

@@ -209,13 +209,38 @@ impl Island {
     }
 }
 
+/// Holding tabs left standing along a `contour` profile.
+///
+/// Tabs keep the part attached to the stock while the profile is cut. `count`
+/// tabs are spaced evenly around the profile perimeter; each tab leaves
+/// `height` millimetres of material above the cut floor over a `width`
+/// millimetre chord of the path. Widths are millimetres and `count` is a number
+/// of tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TabSettings {
+    /// Number of tabs spaced evenly around the profile perimeter.
+    pub count: u32,
+    /// Chord width of one tab along the profile.
+    pub width: f64,
+    /// Material height left above the cut floor.
+    pub height: f64,
+}
+
+impl TabSettings {
+    /// Creates tab settings from a count and millimetre sizes.
+    pub const fn new(count: u32, width: f64, height: f64) -> Self {
+        Self { count, width, height }
+    }
+}
+
 /// One machining operation.
 ///
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
-/// `peck` only by `drill`, and `path` only by `engrave`. `strategy` selects the
-/// rectangle clearing pattern:
+/// `peck` only by `drill`, `path` only by `engrave`, and `tabs` only by
+/// `contour`. `strategy` selects the rectangle clearing pattern:
 /// `raster` (the default) or `spiral` (concentric rectangles). `shape` selects
 /// the pocket outline: `rect` (the default) or `circle`, which uses `width` as
 /// the diameter and needs `height` equal to `width`.
@@ -274,6 +299,9 @@ pub struct Operation {
     /// `operation/invalid` by validation instead of a parse error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<String>,
+    /// Holding tabs of a `contour` operation; `None` cuts the full profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tabs: Option<TabSettings>,
 }
 
 impl Operation {
@@ -297,6 +325,7 @@ impl Operation {
             peck: None,
             strategy: None,
             shape: None,
+            tabs: None,
         }
     }
 }

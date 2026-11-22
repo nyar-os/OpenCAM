@@ -169,7 +169,7 @@ fn a_pocket_without_islands_is_byte_identical_to_the_previous_output() {
 
     let expected = [
         "%",
-        "(OpenCAM 0.0.1)",
+        concat!("(OpenCAM ", env!("CARGO_PKG_VERSION"), ")"),
         "(Units: mm)",
         "(Post: generic mill, absolute, XY plane)",
         "G21 G90 G17 G94",

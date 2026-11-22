@@ -58,12 +58,13 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--holes <x,y;x,y>] [--peck <d>]
                       [--island <x,y,w,h>]...
                       [--path <x,y;x,y>]
+                      [--tabs <count,width,height>]
 ```
 
 | Kind | Geometry |
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
-| `contour` | `--x --y --width --height`, milled outside by the cutter radius |
+| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` |
 | `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line |
@@ -104,6 +105,16 @@ engrave operation needs at least two points, every point must lie on the stock
 and adjacent points may not coincide; violations report `operation/invalid` or
 `path/outside-stock`. `engrave` accepts neither `--holes` nor `--island`
 (`operation/invalid`).
+
+`--tabs count,width,height` is only used by `contour` and leaves holding tabs in
+the profile. `count` tabs are spaced evenly around the rectangle perimeter; each
+tab keeps `height` millimetres of material above the cut floor over a `width`
+millimetre chord of the path. Over a tab the cutter lifts to the level plus
+`height` (capped at the clearance plane), rapids along the profile to the far
+edge of the tab and plunges back. The operation reports `operation/invalid` when
+another kind uses tabs, when `count` is zero, when `width` or `height` is not
+positive, when `height` exceeds `--depth`, or when `count × width` is not below
+the profile perimeter `2 × (width + height)`.
 
 ## operation remove
 
@@ -191,6 +202,9 @@ open-cam operation add bracket.ocam --id bore --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --shape circle --x 20 --y 20 --width 40 --height 40
 open-cam operation add bracket.ocam --id logo --kind engrave --tool t2 \
     --depth 0.5 --stepdown 0.25 --path "10,10;40,10;40,30;70,30"
+open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \
+    --depth 8 --stepdown 2 --x 20 --y 20 --width 60 --height 40 \
+    --tabs 4,6,1
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam gcode bracket.ocam --out bracket.nc

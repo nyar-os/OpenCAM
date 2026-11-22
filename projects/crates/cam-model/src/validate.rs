@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     CamError,
-    model::{CamDocument, FORMAT, Operation, OperationKind, Tool, UNITS, VERSION},
+    model::{CamDocument, FORMAT, Operation, OperationKind, TabSettings, Tool, UNITS, VERSION},
 };
 
 /// Severity of one finding.
@@ -224,11 +224,20 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` shape `{other}` is unknown; only `rect` or `circle` is supported", operation.id),
         )),
     }
+    if operation.tabs.is_some() && operation.kind != OperationKind::Contour {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` uses tabs but only `contour` supports them", operation.id),
+        ));
+    }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {
             check_no_islands(operation, issues);
             check_rectangle(operation, document, issues);
+            if let Some(tabs) = operation.tabs {
+                check_tabs(operation, tabs, issues);
+            }
             if !positive(tool.diameter) {
                 return;
             }
@@ -353,6 +362,52 @@ fn check_rectangle(operation: &Operation, document: &CamDocument, issues: &mut V
         issues.push(Issue::error(
             "path/outside-stock",
             format!("operation `{}` rectangle leaves the stock boundary", operation.id),
+        ));
+    }
+}
+
+/// Checks the holding tabs of a `contour` operation.
+///
+/// Tabs need at least one entry, a positive width and a positive height that
+/// does not exceed the cut depth. The tabs may not consume the whole profile:
+/// `count × width` must stay below the rectangle perimeter
+/// `2 × (width + height)`, which keeps one cut interval between every pair of
+/// tabs.
+fn check_tabs(operation: &Operation, tabs: TabSettings, issues: &mut Vec<Issue>) {
+    if tabs.count == 0 {
+        issues
+            .push(Issue::error("operation/invalid", format!("operation `{}` tabs need a count of at least one", operation.id)));
+    }
+    if !positive(tabs.width) {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` tab width must be finite and greater than zero", operation.id),
+        ));
+    }
+    if !positive(tabs.height) {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` tab height must be finite and greater than zero", operation.id),
+        ));
+    }
+    else if positive(operation.depth) && tabs.height > operation.depth + EPSILON {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` tab height {} exceeds the cut depth {}", operation.id, tabs.height, operation.depth),
+        ));
+    }
+    if !positive(operation.width) || !positive(operation.height) || !positive(tabs.width) || tabs.count == 0 {
+        return;
+    }
+    let footprint = tabs.width * f64::from(tabs.count);
+    let perimeter = 2.0 * (operation.width + operation.height);
+    if footprint >= perimeter {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!(
+                "operation `{}` tab count × width {} must be less than the profile perimeter {}",
+                operation.id, footprint, perimeter
+            ),
         ));
     }
 }

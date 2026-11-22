@@ -15,7 +15,16 @@ import { fileURLToPath } from 'node:url';
 import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
 import { OpenCAM } from './open-cam.js';
-import type { ExportFormat, Hole, Island, OperationKind, PathPoint, PocketShape, PocketStrategy } from './types.js';
+import type {
+    ExportFormat,
+    Hole,
+    Island,
+    OperationKind,
+    PathPoint,
+    PocketShape,
+    PocketStrategy,
+    TabSettings,
+} from './types.js';
 
 interface CliLocale {
     readonly cli: {
@@ -205,6 +214,17 @@ function parseIslands(raw: readonly string[]): Island[] {
     });
 }
 
+function parseTabs(raw: string): TabSettings {
+    const parts = raw.split(',').map((entry) => entry.trim());
+    const count = Number(parts[0]);
+    const width = Number(parts[1]);
+    const height = Number(parts[2]);
+    if (parts.length !== 3 || !Number.isInteger(count) || count < 0 || !Number.isFinite(width) || !Number.isFinite(height)) {
+        throw new OpenCAMError('cli/invalid-number', `tabs \`${raw}\` must be a \`count,width,height\` triple`);
+    }
+    return { count, width, height };
+}
+
 function print(value: unknown): void {
     console.log(JSON.stringify(value, null, 2));
 }
@@ -337,6 +357,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover',
                 '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island', '--path',
+                '--tabs',
             ],
             [],
             async (document, parsed) => {
@@ -346,6 +367,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                 const path = parsed.options.get('--path');
                 const strategy = parsed.options.get('--strategy');
                 const shape = parsed.options.get('--shape');
+                const tabs = parsed.options.get('--tabs');
                 print(
                     await document.addOperation({
                         id,
@@ -365,6 +387,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         path: path === undefined ? [] : parsePath(path),
                         islands: parseIslands(parsed.repeated.get('--island') ?? []),
                         peck: number(parsed, '--peck'),
+                        tabs: tabs === undefined ? undefined : parseTabs(tabs),
                     }),
                 );
             },

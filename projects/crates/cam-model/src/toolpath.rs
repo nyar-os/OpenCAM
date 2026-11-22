@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     CamError,
-    model::{CamDocument, Operation, OperationKind, Point, Stock, Tool},
+    model::{CamDocument, Operation, OperationKind, Point, Stock, TabSettings, Tool},
     validate,
 };
 
@@ -193,22 +193,130 @@ fn face(operation: &Operation, tool: &Tool, stock: &Stock, safe_z: f64, builder:
 
 fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let radius = tool.radius();
-    let x0 = operation.x - radius;
-    let y0 = operation.y - radius;
-    let x1 = operation.x + operation.width + radius;
-    let y1 = operation.y + operation.height + radius;
-    let corners = [Point::new(x0, y0, 0.0), Point::new(x1, y0, 0.0), Point::new(x1, y1, 0.0), Point::new(x0, y1, 0.0)];
+    let profile = Profile::new(
+        operation.x - radius,
+        operation.y - radius,
+        operation.x + operation.width + radius,
+        operation.y + operation.height + radius,
+    );
+    let corners = [
+        Point::new(profile.x0, profile.y0, 0.0),
+        Point::new(profile.x1, profile.y0, 0.0),
+        Point::new(profile.x1, profile.y1, 0.0),
+        Point::new(profile.x0, profile.y1, 0.0),
+    ];
 
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
         builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
         builder.feed_to(Point::new(corners[0].x, corners[0].y, z), MoveKind::Plunge, tool.plunge_feed);
-        for step in 1..=4 {
-            let corner = corners[step % 4];
-            builder.feed_to(Point::new(corner.x, corner.y, z), MoveKind::Cut, tool.feed);
+        match operation.tabs {
+            None => {
+                for step in 1..=4 {
+                    let corner = corners[step % 4];
+                    builder.feed_to(Point::new(corner.x, corner.y, z), MoveKind::Cut, tool.feed);
+                }
+            }
+            Some(tabs) => contour_with_tabs(&profile, tabs, z, safe_z, tool, builder),
         }
         builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
     }
+}
+
+/// One rectangular contour profile, already offset outward by the cutter radius.
+struct Profile {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+}
+
+impl Profile {
+    fn new(x0: f64, y0: f64, x1: f64, y1: f64) -> Self {
+        Self { x0, y0, x1, y1 }
+    }
+
+    fn width(&self) -> f64 {
+        self.x1 - self.x0
+    }
+
+    fn height(&self) -> f64 {
+        self.y1 - self.y0
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * (self.width() + self.height())
+    }
+
+    /// Point at distance `s` from the lower-left corner, walking bottom, right,
+    /// top and left in that order.
+    fn point(&self, s: f64, z: f64) -> Point {
+        let width = self.width();
+        let height = self.height();
+        if s >= self.perimeter() - TOLERANCE {
+            return Point::new(self.x0, self.y0, z);
+        }
+        if s <= width {
+            return Point::new(self.x0 + s, self.y0, z);
+        }
+        if s <= width + height {
+            return Point::new(self.x1, self.y0 + (s - width), z);
+        }
+        if s <= 2.0 * width + height {
+            return Point::new(self.x1 - (s - width - height), self.y1, z);
+        }
+        Point::new(self.x0, self.y1 - (s - 2.0 * width - height), z)
+    }
+
+    /// Corner distances strictly between `start` and `end` along the perimeter.
+    fn corners_between(&self, start: f64, end: f64) -> Vec<f64> {
+        let width = self.width();
+        let height = self.height();
+        [width, width + height, 2.0 * width + height]
+            .into_iter()
+            .filter(|corner| *corner > start + TOLERANCE && *corner < end - TOLERANCE)
+            .collect()
+    }
+}
+
+/// Cuts a contour while leaving `tabs` standing.
+///
+/// Each tab is centred in an equal share of the profile perimeter. Over a tab
+/// interval the cutter lifts to `z + height` (capped at the clearance plane),
+/// rapids along the perimeter to the far edge of the tab and plunges back to
+/// `z`; the intervals between tabs are cut at the cutting feed. One level
+/// therefore emits exactly `count` lifts and `count` tab-end plunges.
+fn contour_with_tabs(profile: &Profile, tabs: TabSettings, z: f64, safe_z: f64, tool: &Tool, builder: &mut Builder) {
+    let raised = (z + tabs.height).min(safe_z);
+    let spacing = profile.perimeter() / f64::from(tabs.count);
+    let spans = (0..tabs.count).map(|index| {
+        let centre = (f64::from(index) + 0.5) * spacing;
+        (centre - tabs.width / 2.0, centre + tabs.width / 2.0)
+    });
+
+    let mut cursor = 0.0;
+    for (start, end) in spans {
+        cut_along(profile, builder, cursor, start, z, tool.feed);
+        builder.rapid_to(profile.point(start, raised));
+        rapid_along(profile, builder, start, end, raised);
+        builder.feed_to(profile.point(end, z), MoveKind::Plunge, tool.plunge_feed);
+        cursor = end;
+    }
+    cut_along(profile, builder, cursor, profile.perimeter(), z, tool.feed);
+}
+
+fn cut_along(profile: &Profile, builder: &mut Builder, start: f64, end: f64, z: f64, feed: f64) {
+    for corner in profile.corners_between(start, end) {
+        builder.feed_to(profile.point(corner, z), MoveKind::Cut, feed);
+    }
+    builder.feed_to(profile.point(end, z), MoveKind::Cut, feed);
+}
+
+fn rapid_along(profile: &Profile, builder: &mut Builder, start: f64, end: f64, z: f64) {
+    for corner in profile.corners_between(start, end) {
+        builder.rapid_to(profile.point(corner, z));
+    }
+    builder.rapid_to(profile.point(end, z));
 }
 
 /// Engraves the operation polyline at every depth level.

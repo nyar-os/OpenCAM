@@ -68,6 +68,16 @@ export interface Island {
     readonly height: number;
 }
 
+/** Holding tabs left standing along a `contour` profile. */
+export interface TabSettings {
+    /** Number of tabs spaced evenly around the profile perimeter. */
+    readonly count: number;
+    /** Chord width of one tab along the profile, in millimetres. */
+    readonly width: number;
+    /** Material height left above the cut floor, in millimetres. */
+    readonly height: number;
+}
+
 /** One machining operation. */
 export interface Operation {
     readonly id: string;
@@ -95,6 +105,8 @@ export interface Operation {
     readonly strategy?: PocketStrategy;
     /** Pocket outline; absent means `rect`. */
     readonly shape?: PocketShape;
+    /** Holding tabs of a contour operation; absent cuts the full profile. */
+    readonly tabs?: TabSettings;
 }
 
 /** Summary of one document as written to disk. */
@@ -249,6 +261,8 @@ export interface OperationRequest {
     readonly strategy?: PocketStrategy;
     /** Pocket outline; `rect` when omitted. `circle` uses `width` as the diameter. */
     readonly shape?: PocketShape;
+    /** Holding tabs of a contour operation; omitted cuts the full profile. */
+    readonly tabs?: TabSettings;
 }
 
 /** Disclosure level of one capability entry. */

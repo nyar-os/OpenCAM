@@ -34,7 +34,9 @@ pub use crate::{
     error::{CamError, not_implemented},
     export::{markdown, segments_csv, write_atomic},
     gcode::render as render_gcode,
-    model::{CamDocument, FORMAT, Hole, Island, Operation, OperationKind, PathPoint, Point, Stock, Tool, UNITS, VERSION},
+    model::{
+        CamDocument, FORMAT, Hole, Island, Operation, OperationKind, PathPoint, Point, Stock, TabSettings, Tool, UNITS, VERSION,
+    },
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
     validate::{Issue, Severity, ValidationReport},
@@ -48,6 +50,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
   "operations": {
     "face": "supported",
     "contour": "supported",
+    "tabs": "supported",
     "pocket": "supported",
     "pocketRect": "supported",
     "pocketCircle": "supported",
