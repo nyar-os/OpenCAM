@@ -34,6 +34,7 @@ export const errorCodes = [
     'operation/island-outside-pocket',
     'operation/island-too-close',
     'operation/island-overlap',
+    'operation/strategy-island',
     'path/outside-stock',
     'export/invalid',
     'cli/unknown-command',

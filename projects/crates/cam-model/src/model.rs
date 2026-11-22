@@ -189,7 +189,8 @@ impl Island {
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`, and
-/// `peck` only by `drill`.
+/// `peck` only by `drill`. `strategy` selects the pocket clearing pattern:
+/// `raster` (the default) or `spiral` (concentric rectangles).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
@@ -229,6 +230,12 @@ pub struct Operation {
     /// Peck increment of a `drill` operation; `null` uses a single plunge.
     #[serde(default)]
     pub peck: Option<f64>,
+    /// Pocket clearing pattern: `raster` (default) or `spiral`.
+    ///
+    /// Kept as a string so an unknown value is reported as
+    /// `operation/invalid` by validation instead of a parse error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
 }
 
 impl Operation {
@@ -249,6 +256,7 @@ impl Operation {
             holes: Vec::new(),
             islands: Vec::new(),
             peck: None,
+            strategy: None,
         }
     }
 }

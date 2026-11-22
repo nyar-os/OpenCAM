@@ -20,6 +20,7 @@ Usage:
   ocam tool remove <file> --id <id>
   ocam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id>
                      --depth <d> [--stepdown <d>] [--stepover <d>] [--name <name>]
+                     [--strategy raster|spiral]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
   ocam operation remove <file> --id <id>
@@ -46,7 +47,8 @@ fn main() {
 }
 
 fn run(args: &[String]) -> Result<i32, CamError> {
-    let Some(command) = args.first().map(String::as_str) else {
+    let Some(command) = args.first().map(String::as_str)
+    else {
         println!("{USAGE}");
         return Ok(0);
     };
@@ -169,6 +171,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--stepdown",
                     "--stepover",
                     "--name",
+                    "--strategy",
                     "--x",
                     "--y",
                     "--width",
@@ -187,6 +190,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             let mut operation = Operation::new(id, kind, tool, depth, stepdown);
             operation.name = values.value("--name").unwrap_or(id).to_string();
             operation.stepover = values.optional_number("--stepover")?;
+            operation.strategy = values.value("--strategy").map(str::to_string);
             operation.x = values.number_or("--x", 0.0)?;
             operation.y = values.number_or("--y", 0.0)?;
             operation.width = values.number_or("--width", 0.0)?;
@@ -265,13 +269,15 @@ impl Options {
             if flags.contains(&argument) {
                 map.entry(argument.to_string()).or_default().push(String::new());
                 index += 1;
-            } else if values.contains(&argument) {
+            }
+            else if values.contains(&argument) {
                 let value = args
                     .get(index + 1)
                     .ok_or_else(|| CamError::new("cli/missing-value", format!("option `{argument}` needs a value")))?;
                 map.entry(argument.to_string()).or_default().push(value.clone());
                 index += 2;
-            } else {
+            }
+            else {
                 return Err(CamError::new("cli/unknown-option", format!("unknown option `{argument}`")));
             }
         }

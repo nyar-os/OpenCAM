@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
 import { OpenCAM } from './open-cam.js';
-import type { ExportFormat, Hole, Island, OperationKind } from './types.js';
+import type { ExportFormat, Hole, Island, OperationKind, PocketStrategy } from './types.js';
 
 interface CliLocale {
     readonly cli: {
@@ -152,6 +152,13 @@ function operationKind(value: string): OperationKind {
         return value;
     }
     throw new OpenCAMError('operation/unknown-kind', `unknown operation kind \`${value}\``);
+}
+
+function pocketStrategy(value: string): PocketStrategy {
+    if (value === 'raster' || value === 'spiral') {
+        return value;
+    }
+    throw new OpenCAMError('operation/invalid', `unknown pocket strategy \`${value}\`; only raster or spiral is supported`);
 }
 
 function parseHoles(raw: string): Hole[] {
@@ -314,13 +321,14 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             'operation add <file>',
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover',
-                '--x', '--y', '--width', '--height', '--holes', '--peck', '--island',
+                '--strategy', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island',
             ],
             [],
             async (document, parsed) => {
                 const depth = requiredNumber(parsed, '--depth');
                 const id = required(parsed, '--id');
                 const holes = parsed.options.get('--holes');
+                const strategy = parsed.options.get('--strategy');
                 print(
                     await document.addOperation({
                         id,
@@ -330,6 +338,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         depth,
                         stepdown: number(parsed, '--stepdown') ?? depth,
                         stepover: number(parsed, '--stepover'),
+                        strategy: strategy === undefined ? undefined : pocketStrategy(strategy),
                         x: number(parsed, '--x') ?? 0,
                         y: number(parsed, '--y') ?? 0,
                         width: number(parsed, '--width') ?? 0,

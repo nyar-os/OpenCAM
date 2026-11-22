@@ -188,6 +188,11 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
     operation.width = number_field(&request, "width")?.unwrap_or(0.0);
     operation.height = number_field(&request, "height")?.unwrap_or(0.0);
     operation.peck = number_field(&request, "peck")?;
+    operation.strategy = match request.get("strategy") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => return Err(argument_error("`strategy` must be a string")),
+    };
     if let Some(Value::Array(holes)) = request.get("holes") {
         let mut parsed = Vec::with_capacity(holes.len());
         for hole in holes {

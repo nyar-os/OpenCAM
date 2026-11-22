@@ -13,6 +13,9 @@ export type Units = 'mm';
 /** Machining strategy of one operation. */
 export type OperationKind = 'face' | 'contour' | 'pocket' | 'drill';
 
+/** Pocket clearing pattern: axis-aligned raster or concentric rectangles. */
+export type PocketStrategy = 'raster' | 'spiral';
+
 /** Export formats `exportDocument()` can write. */
 export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md';
 
@@ -77,6 +80,8 @@ export interface Operation {
     readonly islands?: readonly Island[];
     /** Peck increment of a drill operation; `null` uses a single plunge. */
     readonly peck: number | null;
+    /** Pocket clearing pattern; absent means `raster`. */
+    readonly strategy?: PocketStrategy;
 }
 
 /** Summary of one document as written to disk. */
@@ -126,6 +131,8 @@ export interface Move {
 export interface OperationPath {
     readonly operation: string;
     readonly kind: OperationKind;
+    /** Present only for a spiral pocket. */
+    readonly strategy?: PocketStrategy;
     readonly tool: string;
     readonly moves: number;
     readonly cutLength: number;
@@ -138,6 +145,8 @@ export interface OperationPath {
     readonly skippedLength: number;
     /** Number of raster passes skipped because of island keep-out zones. */
     readonly skippedSegments: number;
+    /** Present only for a spiral pocket. */
+    readonly loopCount?: number;
     readonly segments: readonly Move[];
 }
 
@@ -219,6 +228,8 @@ export interface OperationRequest {
     /** Rectangular islands left standing by a pocket operation. */
     readonly islands?: readonly Island[];
     readonly peck?: number;
+    /** Pocket clearing pattern; `raster` when omitted. */
+    readonly strategy?: PocketStrategy;
 }
 
 /** Disclosure level of one capability entry. */

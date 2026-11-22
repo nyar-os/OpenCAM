@@ -57,6 +57,9 @@ pub struct OperationPath {
     pub operation: String,
     /// Operation strategy.
     pub kind: OperationKind,
+    /// Pocket strategy that generated this path; omitted for raster pockets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
     /// Tool identifier.
     pub tool: String,
     /// Number of generated moves.
@@ -75,6 +78,9 @@ pub struct OperationPath {
     pub skipped_length: f64,
     /// Number of raster passes skipped because of island keep-out zones.
     pub skipped_segments: usize,
+    /// Closed loops emitted by a spiral pocket; omitted for raster pockets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_count: Option<usize>,
     /// Explicit moves in execution order.
     pub segments: Vec<Move>,
 }
@@ -125,6 +131,9 @@ pub fn generate(document: &CamDocument) -> Result<ToolpathReport, CamError> {
         match operation.kind {
             OperationKind::Face => face(operation, tool, &document.stock, safe_z, &mut builder),
             OperationKind::Contour => contour(operation, tool, document.stock.height, safe_z, &mut builder),
+            OperationKind::Pocket if operation.strategy.as_deref() == Some("spiral") => {
+                pocket_spiral(operation, tool, document.stock.height, safe_z, &mut builder);
+            }
             OperationKind::Pocket => pocket(operation, tool, document.stock.height, safe_z, &mut builder),
             OperationKind::Drill => drill(operation, tool, document.stock.height, safe_z, &mut builder),
         }
@@ -223,7 +232,8 @@ fn pocket(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, bu
                     let at = builder.at;
                     builder.rapid_to(Point::new(at.x, at.y, safe_z));
                 }
-            } else {
+            }
+            else {
                 for (start, end) in spans {
                     builder.rapid_to(Point::new(start, *y, safe_z));
                     builder.feed_to(Point::new(start, *y, z), MoveKind::Plunge, tool.plunge_feed);
@@ -259,6 +269,54 @@ fn pocket_plain(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f
             let x = if forward { x1 } else { x0 };
             builder.feed_to(Point::new(x, *y, z), MoveKind::Cut, tool.feed);
             forward = !forward;
+        }
+        let at = builder.at;
+        builder.rapid_to(Point::new(at.x, at.y, safe_z));
+    }
+}
+
+/// Spiral pocket: concentric closed rectangles, each inset by `stepover`.
+///
+/// The first ring is the pocket shrunk by the cutter radius; every further ring
+/// is inset one more `stepover` on all four sides. Rings are emitted until the
+/// uncut core left inside a ring is no wider or taller than the tool diameter;
+/// at that point opposite passes overlap and the core is cleared, so no further
+/// closed ring is needed. Rings advance at the cutting feed without retracting.
+fn pocket_spiral(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
+    let radius = tool.radius();
+    let diameter = tool.diameter;
+    let stepover = operation.stepover.unwrap_or(0.6 * tool.diameter);
+
+    let mut insets = vec![radius];
+    let mut inset = radius;
+    loop {
+        let width = operation.width - 2.0 * inset;
+        let height = operation.height - 2.0 * inset;
+        if width - diameter <= diameter + TOLERANCE || height - diameter <= diameter + TOLERANCE {
+            break;
+        }
+        inset += stepover;
+        insets.push(inset);
+    }
+
+    for depth in level_depths(operation.depth, operation.stepdown) {
+        let z = stock_height - depth;
+        let first = insets[0];
+        builder.rapid_to(Point::new(operation.x + first, operation.y + first, safe_z));
+        builder.feed_to(Point::new(operation.x + first, operation.y + first, z), MoveKind::Plunge, tool.plunge_feed);
+        for (index, inset) in insets.iter().enumerate() {
+            let x0 = operation.x + inset;
+            let y0 = operation.y + inset;
+            let x1 = operation.x + operation.width - inset;
+            let y1 = operation.y + operation.height - inset;
+            if index > 0 {
+                builder.feed_to(Point::new(x0, y0, z), MoveKind::Cut, tool.feed);
+            }
+            builder.feed_to(Point::new(x1, y0, z), MoveKind::Cut, tool.feed);
+            builder.feed_to(Point::new(x1, y1, z), MoveKind::Cut, tool.feed);
+            builder.feed_to(Point::new(x0, y1, z), MoveKind::Cut, tool.feed);
+            builder.feed_to(Point::new(x0, y0, z), MoveKind::Cut, tool.feed);
+            builder.loop_count += 1;
         }
         let at = builder.at;
         builder.rapid_to(Point::new(at.x, at.y, safe_z));
@@ -327,6 +385,7 @@ struct Builder {
     island_count: usize,
     skipped_length: f64,
     skipped_segments: usize,
+    loop_count: usize,
 }
 
 impl Builder {
@@ -341,6 +400,7 @@ impl Builder {
             island_count: 0,
             skipped_length: 0.0,
             skipped_segments: 0,
+            loop_count: 0,
         }
     }
 
@@ -373,9 +433,11 @@ impl Builder {
     }
 
     fn finish(mut self, operation: &Operation) -> OperationPath {
+        let spiral = operation.kind == OperationKind::Pocket && operation.strategy.as_deref() == Some("spiral");
         OperationPath {
             operation: operation.id.clone(),
             kind: operation.kind,
+            strategy: spiral.then(|| "spiral".to_string()),
             tool: operation.tool.clone(),
             moves: self.segments.len(),
             cut_length: self.cut_length,
@@ -385,6 +447,7 @@ impl Builder {
             island_count: self.island_count,
             skipped_length: self.skipped_length,
             skipped_segments: self.skipped_segments,
+            loop_count: spiral.then_some(self.loop_count),
             segments: std::mem::take(&mut self.segments),
         }
     }

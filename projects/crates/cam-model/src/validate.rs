@@ -80,12 +80,14 @@ pub fn validate(document: &CamDocument) -> ValidationReport {
     for tool in &document.tools {
         if tool.id.trim().is_empty() {
             issues.push(Issue::error("tool/invalid", "a tool id must be a non-empty string"));
-        } else if !tool_ids.insert(tool.id.as_str()) {
+        }
+        else if !tool_ids.insert(tool.id.as_str()) {
             issues.push(Issue::error("tool/duplicate-id", format!("tool `{}` is declared twice", tool.id)));
         }
         if tool.number == 0 {
             issues.push(Issue::error("tool/invalid", format!("tool `{}` needs a positive number", tool.id)));
-        } else if !tool_numbers.insert(tool.number) {
+        }
+        else if !tool_numbers.insert(tool.number) {
             issues.push(Issue::warning(
                 "tool/duplicate-number",
                 format!("tool number {} is used by more than one tool", tool.number),
@@ -168,7 +170,8 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
     let tool = document.tools.iter().find(|tool| tool.id == operation.tool).expect("checked above");
     if !positive(operation.depth) {
         issues.push(Issue::error("operation/invalid", format!("operation `{}` needs a positive depth", operation.id)));
-    } else if operation.depth > document.stock.height {
+    }
+    else if operation.depth > document.stock.height {
         issues.push(Issue::error(
             "path/outside-stock",
             format!(
@@ -190,6 +193,21 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                 ),
             ));
         }
+    }
+    match operation.strategy.as_deref() {
+        None | Some("raster") => {}
+        Some("spiral") => {
+            if operation.kind != OperationKind::Pocket {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` uses strategy `spiral` but only `pocket` supports it", operation.id),
+                ));
+            }
+        }
+        Some(other) => issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` strategy `{other}` is unknown; only `raster` or `spiral` is supported", operation.id),
+        )),
     }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
@@ -215,6 +233,13 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             }
         }
         OperationKind::Pocket => {
+            let spiral = operation.strategy.as_deref() == Some("spiral");
+            if spiral && !operation.islands.is_empty() {
+                issues.push(Issue::error(
+                    "operation/strategy-island",
+                    format!("operation `{}` uses strategy `spiral`, which does not support islands", operation.id),
+                ));
+            }
             check_rectangle(operation, document, issues);
             if positive(tool.diameter) && (operation.width <= tool.diameter || operation.height <= tool.diameter) {
                 issues.push(Issue::error(
@@ -222,7 +247,9 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                     format!("operation `{}` pocket is narrower than the tool diameter {}", operation.id, tool.diameter),
                 ));
             }
-            check_islands(operation, tool, issues);
+            if !spiral {
+                check_islands(operation, tool, issues);
+            }
         }
         OperationKind::Drill => {
             check_no_islands(operation, issues);
