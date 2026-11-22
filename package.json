@@ -1,0 +1,32 @@
+{
+    "name": "open-cam-workspace",
+    "private": true,
+    "type": "module",
+    "packageManager": "pnpm@10.28.0",
+    "description": "OpenCAM workspace: 2.5-axis toolpaths and G-code on one native model",
+    "keywords": ["cam", "gcode", "milling", "toolpath", "wae"],
+    "license": "MPL-2.0",
+    "repository": "https://github.com/nyar-os/OpenCAM",
+    "scripts": {
+        "build": "wae build",
+        "build:rust": "cargo build --workspace",
+        "doc": "cargo doc --no-deps --all-features",
+        "test": "cargo test --release",
+        "test:cam": "cargo test -p cam-model --offline",
+        "fmt": "cargo fmt --all",
+        "check:rust": "cargo clippy -p cam-model -p open-cam-napi --all-targets -- -D warnings && cargo test -p cam-model --offline",
+        "build:napi": "wae native build",
+        "build:ts": "pnpm --filter @wae/open-cam run build",
+        "stage:native": "wae native stage",
+        "typecheck": "pnpm -r --filter \"./projects/packages/*\" run typecheck",
+        "p": "git push && git push --tags --prune",
+        "reset": "git reset Head~ --soft",
+        "u": "cargo upgrade --workspace"
+    },
+    "devDependencies": {
+        "@doki-land/nifty": "^0.1.15",
+        "@types/node": "^22.20.4",
+        "@wae/wae": "0.0.6",
+        "typescript": "^5.9.2"
+    }
+}
