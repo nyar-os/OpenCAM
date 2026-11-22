@@ -674,6 +674,18 @@
         border-bottom: 0;
     }
 }
+
+@media (max-width: 380px) {
+    .draw {
+        overflow: hidden;
+    }
+
+    .draw__canvas {
+        transform: scale(0.88);
+        transform-origin: top center;
+        margin-bottom: -24px;
+    }
+}
 </style>
 
 <script client>
@@ -694,7 +706,7 @@ const CAPABILITY_ROWS = [
 
 export default class IndexPage {
     public capabilityRows: typeof CAPABILITY_ROWS = CAPABILITY_ROWS;
-    public rasterRows = [44, 62, 80, 98, 116, 134, 152];
+    public rasterRows = [26, 38, 50, 62, 74, 86, 98, 110, 122, 134, 146, 158];
     public moves = "184";
     public cutLength = "12 480";
     public cycleTime = "742.6";
