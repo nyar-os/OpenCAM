@@ -15,7 +15,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `face` raster facing | ✅ supported |
 | `contour` outside rectangular profile, cutter-radius offset | ✅ supported |
 | `contour` outside circular profile (`shape: "circle"`) | ✅ supported |
-| `contour` holding tabs (`tabs`, rectangles only) | ✅ supported |
+| `contour` holding tabs (`tabs`, rectangle or circle) | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
@@ -64,9 +64,17 @@ The machine-readable version is printed by `open-cam capabilities` and by
    The ring starts at angle 0 (+X) and runs counter-clockwise as 72 linear
    cutting segments, closing at the cutting feed. Every level rapids to the
    start at the clearance plane, enters with the plunge or the ramp and
-   retracts to the clearance plane, exactly like the rectangular contour. Tabs
-   are not supported on a circular contour and report `operation/invalid`; the
-   report adds `shape: "circle"` and leaves `loopCount` absent.
+   retracts to the clearance plane, exactly like the rectangular contour.
+   Circular contours accept the same `tabs`: each tab is centred in an equal
+   angular share at angle `2·pi·(k + 0.5) / count`, so the path never starts
+   inside a tab, and covers an arc length of `width` along the tool-centre
+   circle. The baseline segments are split at every tab entry and exit angle,
+   so no cutting move crosses a tab interval. Over a tab the cutter lifts to
+   `min(z + height, safe_z)`, rapids along the circle to the tab exit and
+   plunges back to `z`. Tab widths are measured along the tool-centre path, so
+   `count × width` must stay below its circumference
+   `2 × pi × (width / 2 + r)`. The report adds `shape: "circle"` and leaves
+   `loopCount` absent.
 5. **Pocket.** The raster runs between `x + r … x + width − r` and
    `y + r … y + height − r`; the validator rejects a pocket narrower than the
    tool so the shrunk rectangle can never invert.
@@ -167,7 +175,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for a rectangular `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; a circular contour rejects tabs and reports `operation/invalid`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck` |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -190,7 +198,7 @@ outside the stock) do not make `ok` false.
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
-| `tests/circle_contour.rs` | circular contour at exactly `width / 2 + r`, 72 counter-clockwise segments and closure per level, multiple levels, linear-only G-code, rectangular byte identity, tab rejection, circle-size mismatch, ramp depth, outside-stock, determinism and save/reopen |
+| `tests/circle_contour.rs` | circular contour at exactly `width / 2 + r`, 72 counter-clockwise segments and closure per level, multiple levels, linear-only G-code, rectangular byte identity, tab lift/rapid/plunge groups per level, tab intervals without cuts, on-circle points, closure, safe-z cap, single tab, tab fit and size validation, no-tab identity, ramp with tabs, circle-size mismatch, outside-stock, determinism and save/reopen |
 | `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, closed square perimeter and extra move, open/closed move difference, closed first/last coincidence rejection, non-engrave `closed` rejection, default document byte identity, validation codes, G-code, empty `path` serialization |
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
@@ -218,9 +226,9 @@ outside the stock) do not make `ok` false.
 - Contours are rectangles or full circles with a constant cutter-radius offset;
   a circular contour is approximated by 72 linear segments, not by `G2`/`G3`
   arcs, and has no lead-in/lead-out moves. Holding tabs are evenly spaced along
-  the rectangle only and a circular contour rejects them with
-  `operation/invalid`: individual tab positions, tab shapes other than a chord
-  of the profile and a separate tab-removal pass are not supported.
+  the path: rectangles measure tab widths along the perimeter, circles along the
+  tool-centre circle. Individual tab positions, tab shapes other than a chord of
+  the path and a separate tab-removal pass are not supported.
 - Engraving follows the supplied polyline exactly: no cutter-radius
   compensation, curve fitting, tangency, lead-in or lead-out moves. A closed
   polyline only adds a straight cut back to its first point. Holes and islands

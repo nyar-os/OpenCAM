@@ -65,7 +65,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 | Kind | Geometry |
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
-| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle; `--shape circle` cuts a circular outside profile |
+| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; `--shape circle` cuts a circular outside profile |
 | `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles, optional `--finish` wall loop |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` or `--dwell` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
@@ -118,10 +118,10 @@ between rings without retracting and finishes at the centre. A circular contour
 cuts one closed outside profile of radius `width / 2 + r` per depth level,
 starting at angle 0 (+X) and running counter-clockwise as 72 linear segments
 that close at the cutting feed; every level enters with a plunge or `--ramp` and
-retracts to the clearance plane. A circular contour rejects `--tabs` with
-`operation/invalid`. `circle` on a pocket accepts no explicit `--strategy`
-(`operation/strategy-circle`) and no `--island` (`operation/strategy-island`);
-with `rect` both kinds behave exactly as before.
+retracts to the clearance plane. `--tabs` is supported on a circular contour
+with the same meaning as on a rectangle. `circle` on a pocket accepts no explicit
+`--strategy` (`operation/strategy-circle`) and no `--island`
+(`operation/strategy-island`); with `rect` both kinds behave exactly as before.
 
 `--path x,y;x,y;...` is only used by `engrave` and lists the polyline vertices in
 order. Every depth level repeats the whole polyline at its own Z. The cutter
@@ -138,16 +138,19 @@ loop. The path must not already end on its first point; that reports
 other kind reports `operation/invalid`. Without the flag the engraving is exactly
 the open polyline as before.
 
-`--tabs count,width,height` is only used by a rectangular `contour` and leaves
-holding tabs in the profile; a circular contour rejects tabs with
-`operation/invalid`. `count` tabs are spaced evenly around the rectangle
-perimeter; each tab keeps `height` millimetres of material above the cut floor
-over a `width` millimetre chord of the path. Over a tab the cutter lifts to the level plus
-`height` (capped at the clearance plane), rapids along the profile to the far
-edge of the tab and plunges back. The operation reports `operation/invalid` when
-another kind uses tabs, when `count` is zero, when `width` or `height` is not
-positive, when `height` exceeds `--depth`, or when `count × width` is not below
-the profile perimeter `2 × (width + height)`.
+`--tabs count,width,height` is only used by a `contour` and leaves holding tabs
+in the profile. `count` tabs are spaced evenly around the path; each tab keeps
+`height` millimetres of material above the cut floor over a `width` millimetre
+length of the path. A rectangle measures tab widths along its perimeter; a circle
+measures them along the tool-centre circle of radius `width / 2 + r` and centres
+each tab at angle `2 × pi × (k + 0.5) / count`. Over a tab the cutter lifts to the
+level plus `height` (capped at the clearance plane), rapids along the path to the
+far edge of the tab and plunges back. The operation reports `operation/invalid`
+when another kind uses tabs, when `count` is zero, when `width` or `height` is
+not positive, when a rectangle's `height` exceeds `--depth`, when a rectangle's
+`count × width` is not below the profile perimeter `2 × (width + height)`, or when
+a circle's `count × width` is not below the tool-centre circumference
+`2 × pi × (width / 2 + r)`.
 
 `--finish` is a flag for `pocket` that adds one extra closed loop along the
 final wall after the clearing moves of every depth level. The loop follows the

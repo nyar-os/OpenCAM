@@ -284,28 +284,24 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
         OperationKind::Contour => {
             check_no_islands(operation, issues);
             check_rectangle(operation, document, issues);
-            if operation.shape.as_deref() == Some("circle") {
-                if operation.tabs.is_some() {
-                    issues.push(Issue::error(
-                        "operation/invalid",
-                        format!("operation `{}` uses tabs but a circular contour does not support them", operation.id),
-                    ));
-                }
-                if positive(operation.width)
-                    && positive(operation.height)
-                    && (operation.width - operation.height).abs() > EPSILON
-                {
-                    issues.push(Issue::error(
-                        "operation/circle-size",
-                        format!(
-                            "operation `{}` circular contour needs height equal to width, which is the diameter",
-                            operation.id
-                        ),
-                    ));
-                }
+            let circle = operation.shape.as_deref() == Some("circle");
+            if circle
+                && positive(operation.width)
+                && positive(operation.height)
+                && (operation.width - operation.height).abs() > EPSILON
+            {
+                issues.push(Issue::error(
+                    "operation/circle-size",
+                    format!("operation `{}` circular contour needs height equal to width, which is the diameter", operation.id),
+                ));
             }
-            else if let Some(tabs) = operation.tabs {
-                check_tabs(operation, tabs, issues);
+            if let Some(tabs) = operation.tabs {
+                if circle {
+                    check_circle_tabs(operation, tabs, tool, issues);
+                }
+                else {
+                    check_tabs(operation, tabs, issues);
+                }
             }
             if !positive(tool.diameter) {
                 return;
@@ -452,23 +448,11 @@ fn check_rectangle(operation: &Operation, document: &CamDocument, issues: &mut V
 /// `2 × (width + height)`, which keeps one cut interval between every pair of
 /// tabs.
 fn check_tabs(operation: &Operation, tabs: TabSettings, issues: &mut Vec<Issue>) {
-    if tabs.count == 0 {
-        issues
-            .push(Issue::error("operation/invalid", format!("operation `{}` tabs need a count of at least one", operation.id)));
-    }
-    if !positive(tabs.width) {
-        issues.push(Issue::error(
-            "operation/invalid",
-            format!("operation `{}` tab width must be finite and greater than zero", operation.id),
-        ));
-    }
+    check_tab_fields(operation, tabs, issues);
     if !positive(tabs.height) {
-        issues.push(Issue::error(
-            "operation/invalid",
-            format!("operation `{}` tab height must be finite and greater than zero", operation.id),
-        ));
+        return;
     }
-    else if positive(operation.depth) && tabs.height > operation.depth + EPSILON {
+    if positive(operation.depth) && tabs.height > operation.depth + EPSILON {
         issues.push(Issue::error(
             "operation/invalid",
             format!("operation `{}` tab height {} exceeds the cut depth {}", operation.id, tabs.height, operation.depth),
@@ -486,6 +470,51 @@ fn check_tabs(operation: &Operation, tabs: TabSettings, issues: &mut Vec<Issue>)
                 "operation `{}` tab count × width {} must be less than the profile perimeter {}",
                 operation.id, footprint, perimeter
             ),
+        ));
+    }
+}
+
+/// Checks the holding tabs of a circular `contour` operation.
+///
+/// A circular contour shares the count, width and height rules of a rectangular
+/// tab set. Tab widths are measured along the tool-centre path, the circle of
+/// radius `width / 2 + cutter_radius`, so `count × width` must stay below its
+/// circumference `2 × pi × (width / 2 + r)`. A taller-than-deep tab is allowed
+/// because the generator caps the lift at the clearance plane.
+fn check_circle_tabs(operation: &Operation, tabs: TabSettings, tool: &Tool, issues: &mut Vec<Issue>) {
+    check_tab_fields(operation, tabs, issues);
+    if !positive(operation.width) || !positive(tool.diameter) || !positive(tabs.width) || tabs.count == 0 {
+        return;
+    }
+    let footprint = tabs.width * f64::from(tabs.count);
+    let circumference = std::f64::consts::TAU * (operation.width / 2.0 + tool.radius());
+    if footprint >= circumference {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!(
+                "operation `{}` tab count × width {} must be less than the tool-centre circumference {}",
+                operation.id, footprint, circumference
+            ),
+        ));
+    }
+}
+
+/// Shared count, width and height checks of one tab set.
+fn check_tab_fields(operation: &Operation, tabs: TabSettings, issues: &mut Vec<Issue>) {
+    if tabs.count == 0 {
+        issues
+            .push(Issue::error("operation/invalid", format!("operation `{}` tabs need a count of at least one", operation.id)));
+    }
+    if !positive(tabs.width) {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` tab width must be finite and greater than zero", operation.id),
+        ));
+    }
+    if !positive(tabs.height) {
+        issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` tab height must be finite and greater than zero", operation.id),
         ));
     }
 }

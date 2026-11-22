@@ -209,21 +209,21 @@ impl Island {
     }
 }
 
-/// Holding tabs left standing along a rectangular `contour` profile.
+/// Holding tabs left standing along a `contour` profile.
 ///
-/// Tabs keep the part attached to the stock while the profile is cut and are
-/// not available on a circular contour, which rejects them with
-/// `operation/invalid`. `count` tabs are spaced evenly around the profile
-/// perimeter; each tab leaves
-/// `height` millimetres of material above the cut floor over a `width`
-/// millimetre chord of the path. Widths are millimetres and `count` is a number
-/// of tabs.
+/// Tabs keep the part attached to the stock while the profile is cut. `count`
+/// tabs are spaced evenly around the path; each tab leaves `height` millimetres
+/// of material above the cut floor over a `width` millimetre length of the
+/// path. A rectangular contour measures the length along its perimeter, a
+/// circular contour along the tool-centre circle. Widths are millimetres and
+/// `count` is a number of tabs. A circular tab lift is capped at the clearance
+/// plane, so a height taller than the cut depth stays above the stock.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TabSettings {
-    /// Number of tabs spaced evenly around the profile perimeter.
+    /// Number of tabs spaced evenly around the path.
     pub count: u32,
-    /// Chord width of one tab along the profile.
+    /// Length of one tab along the path.
     pub width: f64,
     /// Material height left above the cut floor.
     pub height: f64,

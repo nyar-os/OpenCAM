@@ -248,36 +248,128 @@ fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
 /// the cutting feed. Every depth level rapids to the start at the clearance
 /// plane, enters with the vertical plunge or the `ramp` entry and retracts to
 /// the clearance plane afterwards, exactly like the rectangular contour.
+///
+/// With `tabs` the ring is split at every tab entry and exit angle so no
+/// cutting move crosses a tab, and the cutter lifts over each tab as described
+/// in [`circle_with_tabs`].
 fn contour_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
-    let path_radius = operation.width / 2.0 + tool.radius();
-    let centre = Point::new(operation.x + operation.width / 2.0, operation.y + operation.height / 2.0, 0.0);
+    let path = CirclePath::new(operation, tool, safe_z);
     let chord = std::f64::consts::TAU / RING_SEGMENTS as f64;
-    let start = Point::new(centre.x + path_radius, centre.y, safe_z);
+    // A ramp stays on the first cutting run and never crosses a tab.
+    let ramp_end = match operation.tabs {
+        None => chord,
+        Some(tabs) => circle_first_tab_entry(tabs, path.radius),
+    };
 
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
-        builder.rapid_to(start);
+        builder.rapid_to(path.start);
         match operation.ramp {
-            Some(ramp) => ramp_entry(
-                builder,
-                start,
-                Point::new(centre.x + path_radius * chord.cos(), centre.y + path_radius * chord.sin(), safe_z),
-                z,
-                ramp,
-                tool.plunge_feed,
-                tool.feed,
-            ),
+            Some(ramp) => ramp_entry(builder, path.start, path.point(ramp_end, safe_z), z, ramp, tool.plunge_feed, tool.feed),
             None => {
-                builder.feed_to(Point::new(start.x, start.y, z), MoveKind::Plunge, tool.plunge_feed);
+                builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Plunge, tool.plunge_feed);
             }
         }
-        for step in 1..=RING_SEGMENTS {
-            let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
-            let point = Point::new(centre.x + path_radius * angle.cos(), centre.y + path_radius * angle.sin(), z);
-            builder.feed_to(point, MoveKind::Cut, tool.feed);
+        match operation.tabs {
+            None => {
+                for step in 1..=RING_SEGMENTS {
+                    let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
+                    builder.feed_to(path.point(angle, z), MoveKind::Cut, tool.feed);
+                }
+                builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Cut, tool.feed);
+            }
+            Some(tabs) => circle_with_tabs(&path, tabs, z, safe_z, tool, builder),
         }
-        builder.feed_to(Point::new(start.x, start.y, z), MoveKind::Cut, tool.feed);
-        builder.rapid_to(start);
+        builder.rapid_to(path.start);
+    }
+}
+
+/// Tool-centre path of one circular contour.
+struct CirclePath {
+    centre: Point,
+    radius: f64,
+    start: Point,
+}
+
+impl CirclePath {
+    fn new(operation: &Operation, tool: &Tool, safe_z: f64) -> Self {
+        let radius = operation.width / 2.0 + tool.radius();
+        let centre = Point::new(operation.x + operation.width / 2.0, operation.y + operation.height / 2.0, 0.0);
+        let start = Point::new(centre.x + radius, centre.y, safe_z);
+        Self { centre, radius, start }
+    }
+
+    /// One point of the tool-centre circle at `angle` radians.
+    fn point(&self, angle: f64, z: f64) -> Point {
+        Point::new(self.centre.x + self.radius * angle.cos(), self.centre.y + self.radius * angle.sin(), z)
+    }
+}
+
+/// Angle where the first tab begins, measured counter-clockwise from +X.
+///
+/// Tabs are centred at `2·pi·(k + 0.5) / count`, so the first one starts half a
+/// share minus half its angular width and the path never starts inside a tab.
+fn circle_first_tab_entry(tabs: TabSettings, path_radius: f64) -> f64 {
+    let share = std::f64::consts::TAU / f64::from(tabs.count);
+    (0.5 * share - tabs.width / (2.0 * path_radius)).max(0.0)
+}
+
+/// Angles of the [`RING_SEGMENTS`] approximation strictly between `start` and
+/// `end`, followed by `end` itself.
+///
+/// Splitting the baseline ring at the tab boundaries keeps the linear
+/// approximation while making every emitted interval either fully cutting or
+/// fully inside a tab.
+fn ring_angles_between(start: f64, end: f64) -> Vec<f64> {
+    let chord = std::f64::consts::TAU / RING_SEGMENTS as f64;
+    let mut angles: Vec<f64> = (1..RING_SEGMENTS)
+        .map(|step| chord * step as f64)
+        .filter(|angle| *angle > start + TOLERANCE && *angle < end - TOLERANCE)
+        .collect();
+    angles.push(end);
+    angles
+}
+
+/// Cuts a circular contour while leaving `tabs` standing.
+///
+/// Each tab is centred in an equal angular share of the tool-centre circle at
+/// angle `2·pi·(k + 0.5) / count` and covers an arc length of `width` along it,
+/// so its half angle is `width / (2·path_radius)`. The ring is split at every
+/// tab entry and exit angle. Over a tab interval the cutter lifts to
+/// `min(z + height, safe_z)`, rapids along the circle to the tab exit and
+/// plunges back to `z`; the intervals between tabs are cut at the cutting feed.
+/// One level therefore emits exactly `count` lifts and `count` tab-end plunges,
+/// every point stays exactly `path_radius` from the centre and the ring closes
+/// at the start point.
+fn circle_with_tabs(path: &CirclePath, tabs: TabSettings, z: f64, safe_z: f64, tool: &Tool, builder: &mut Builder) {
+    let raised = (z + tabs.height).min(safe_z);
+    let share = std::f64::consts::TAU / f64::from(tabs.count);
+    let half = tabs.width / (2.0 * path.radius);
+
+    let mut cursor = 0.0;
+    for index in 0..tabs.count {
+        let tab_centre = (f64::from(index) + 0.5) * share;
+        let entry = tab_centre - half;
+        let exit = tab_centre + half;
+        circle_cut_arc(path, builder, cursor, entry, z, tool.feed);
+        builder.rapid_to(path.point(entry, raised));
+        circle_rapid_arc(path, builder, entry, exit, raised);
+        builder.feed_to(path.point(exit, z), MoveKind::Plunge, tool.plunge_feed);
+        cursor = exit;
+    }
+    circle_cut_arc(path, builder, cursor, std::f64::consts::TAU, z, tool.feed);
+    builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Cut, tool.feed);
+}
+
+fn circle_cut_arc(path: &CirclePath, builder: &mut Builder, start: f64, end: f64, z: f64, feed: f64) {
+    for angle in ring_angles_between(start, end) {
+        builder.feed_to(path.point(angle, z), MoveKind::Cut, feed);
+    }
+}
+
+fn circle_rapid_arc(path: &CirclePath, builder: &mut Builder, start: f64, end: f64, z: f64) {
+    for angle in ring_angles_between(start, end) {
+        builder.rapid_to(path.point(angle, z));
     }
 }
 

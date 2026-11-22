@@ -119,7 +119,11 @@ takes an optional `shape`: `rect` (the default) or `circle`, where `width` is th
 diameter, `height` must equal `width`, and the cutter walks concentric rings to
 the centre; a circular pocket accepts neither an explicit strategy nor islands.
 A contour also takes `shape`: `circle` cuts a closed outside profile of radius
-`width / 2 + r` as 72 linear segments and rejects holding tabs.
+`width / 2 + r` as 72 linear segments. Both a rectangular and a circular contour
+accept `tabs`: `count` equal angular or perimeter shares with each tab centred in
+its share and `width` millimetres long along the tool-centre path, leaving
+`height` millimetres of material above the cut floor (capped at the clearance
+plane).
 `stepdown` is the maximum cut per Z pass and `stepover` defaults to 70 % of the
 tool diameter for facing and 60 % for pocketing. The toolpath report reports
 `islandCount`, `skippedLength` and `skippedSegments` per operation, all `0`
