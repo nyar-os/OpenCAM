@@ -194,6 +194,20 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             ));
         }
     }
+    if let Some(ramp) = operation.ramp {
+        if !positive(ramp) {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` ramp must be finite and greater than zero", operation.id),
+            ));
+        }
+        if !matches!(operation.kind, OperationKind::Contour | OperationKind::Pocket | OperationKind::Engrave) {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` uses ramp but only `contour`, `pocket` and `engrave` support it", operation.id),
+            ));
+        }
+    }
     match operation.strategy.as_deref() {
         None | Some("raster") => {}
         Some("spiral") => {

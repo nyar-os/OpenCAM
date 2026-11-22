@@ -90,6 +90,8 @@ export interface Operation {
     readonly stepdown: number;
     /** Raster spacing; `null` selects the kind default. */
     readonly stepover: number | null;
+    /** Horizontal ramp entry length of every Z level, in millimetres; absent plunges vertically. */
+    readonly ramp?: number;
     readonly x: number;
     readonly y: number;
     readonly width: number;
@@ -249,6 +251,8 @@ export interface OperationRequest {
     /** Defaults to `depth`, i.e. one Z pass. */
     readonly stepdown?: number;
     readonly stepover?: number;
+    /** Horizontal ramp entry length of every Z level, in millimetres; omitted plunges vertically. */
+    readonly ramp?: number;
     readonly x?: number;
     readonly y?: number;
     readonly width?: number;

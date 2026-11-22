@@ -240,7 +240,8 @@ impl TabSettings {
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
 /// `peck` only by `drill`, `path` only by `engrave`, `closed` only by `engrave`,
-/// and `tabs` only by `contour`. `strategy` selects the rectangle clearing
+/// `tabs` only by `contour`, and `ramp` only by `contour`, `pocket` and
+/// `engrave`. `strategy` selects the rectangle clearing
 /// pattern:
 /// `raster` (the default) or `spiral` (concentric rectangles). `shape` selects
 /// the pocket outline: `rect` (the default) or `circle`, which uses `width` as
@@ -263,6 +264,19 @@ pub struct Operation {
     /// Distance between raster lines; `null` selects the kind default.
     #[serde(default)]
     pub stepover: Option<f64>,
+    /// Horizontal length of the ramp entry of every Z level, in millimetres.
+    ///
+    /// When set, a level no longer enters with one vertical plunge. The tool
+    /// starts at the clearance plane above the first cutting move of the level,
+    /// covers `ramp` millimetres horizontally along that first cutting direction
+    /// while descending linearly, and folds back at the ends of the first
+    /// segment when `ramp` is longer than it. It then returns to the entry
+    /// point at the level depth, so the rest of the level path is unchanged.
+    /// The descent ends exactly at the level depth, so no move goes below it.
+    /// Only `contour`, `pocket` and `engrave` accept a ramp; `None` keeps the
+    /// vertical plunge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ramp: Option<f64>,
     /// Lower-left corner X of the rectangle used by `contour` and `pocket`.
     #[serde(default)]
     pub x: f64,
@@ -319,6 +333,7 @@ impl Operation {
             depth,
             stepdown,
             stepover: None,
+            ramp: None,
             x: 0.0,
             y: 0.0,
             width: 0.0,

@@ -355,7 +355,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             args.slice(1),
             'operation add <file>',
             [
-                '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover',
+                '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover', '--ramp',
                 '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island', '--path',
                 '--tabs',
             ],
@@ -377,6 +377,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         depth,
                         stepdown: number(parsed, '--stepdown') ?? depth,
                         stepover: number(parsed, '--stepover'),
+                        ramp: number(parsed, '--ramp'),
                         strategy: strategy === undefined ? undefined : pocketStrategy(strategy),
                         shape: shape === undefined ? undefined : (shape as PocketShape),
                         x: number(parsed, '--x') ?? 0,

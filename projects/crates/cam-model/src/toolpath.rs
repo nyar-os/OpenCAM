@@ -205,11 +205,24 @@ fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
         Point::new(profile.x1, profile.y1, 0.0),
         Point::new(profile.x0, profile.y1, 0.0),
     ];
+    // A ramp stays on the first bottom-edge run and never crosses a tab.
+    let ramp_run = match operation.tabs {
+        None => profile.width(),
+        Some(tabs) => first_tab_start(&profile, tabs).min(profile.width()),
+    };
 
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
         builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
-        builder.feed_to(Point::new(corners[0].x, corners[0].y, z), MoveKind::Plunge, tool.plunge_feed);
+        match operation.ramp {
+            Some(ramp) => {
+                let end = profile.point(ramp_run, safe_z);
+                ramp_entry(builder, Point::new(corners[0].x, corners[0].y, safe_z), end, z, ramp, tool.plunge_feed, tool.feed);
+            }
+            None => {
+                builder.feed_to(Point::new(corners[0].x, corners[0].y, z), MoveKind::Plunge, tool.plunge_feed);
+            }
+        }
         match operation.tabs {
             None => {
                 for step in 1..=4 {
@@ -279,6 +292,12 @@ impl Profile {
     }
 }
 
+/// Perimeter distance where the first tab begins; never negative.
+fn first_tab_start(profile: &Profile, tabs: TabSettings) -> f64 {
+    let spacing = profile.perimeter() / f64::from(tabs.count);
+    (0.5 * spacing - tabs.width / 2.0).max(0.0)
+}
+
 /// Cuts a contour while leaving `tabs` standing.
 ///
 /// Each tab is centred in an equal share of the profile perimeter. Over a tab
@@ -329,11 +348,25 @@ fn rapid_along(profile: &Profile, builder: &mut Builder, start: f64, end: f64, z
 /// applied.
 fn engrave(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let first = operation.path[0];
+    let second = operation.path[1];
 
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
         builder.rapid_to(Point::new(first.x, first.y, safe_z));
-        builder.feed_to(Point::new(first.x, first.y, z), MoveKind::Plunge, tool.plunge_feed);
+        match operation.ramp {
+            Some(ramp) => ramp_entry(
+                builder,
+                Point::new(first.x, first.y, safe_z),
+                Point::new(second.x, second.y, safe_z),
+                z,
+                ramp,
+                tool.plunge_feed,
+                tool.feed,
+            ),
+            None => {
+                builder.feed_to(Point::new(first.x, first.y, z), MoveKind::Plunge, tool.plunge_feed);
+            }
+        }
         for point in &operation.path[1..] {
             builder.feed_to(Point::new(point.x, point.y, z), MoveKind::Cut, tool.feed);
         }
@@ -363,28 +396,34 @@ fn pocket(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, bu
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
         let mut forward = true;
+        let mut entered = false;
         for y in &lines {
             let blocked = island_keep_out(operation, radius, *y, x0, x1);
             builder.skipped_segments += blocked.len();
             builder.skipped_length += blocked.iter().map(|(low, high)| high - low).sum::<f64>();
             let spans = cut_spans(x0, x1, &blocked);
-            if !forward {
-                for (start, end) in spans.into_iter().rev().map(|(low, high)| (high, low)) {
-                    builder.rapid_to(Point::new(start, *y, safe_z));
-                    builder.feed_to(Point::new(start, *y, z), MoveKind::Plunge, tool.plunge_feed);
-                    builder.feed_to(Point::new(end, *y, z), MoveKind::Cut, tool.feed);
-                    let at = builder.at;
-                    builder.rapid_to(Point::new(at.x, at.y, safe_z));
+            let ordered: Vec<(f64, f64)> =
+                if forward { spans } else { spans.into_iter().rev().map(|(low, high)| (high, low)).collect() };
+            for (start, end) in ordered {
+                builder.rapid_to(Point::new(start, *y, safe_z));
+                match operation.ramp {
+                    Some(ramp) if !entered => {
+                        ramp_entry(
+                            builder,
+                            Point::new(start, *y, safe_z),
+                            Point::new(end, *y, safe_z),
+                            z,
+                            ramp,
+                            tool.plunge_feed,
+                            tool.feed,
+                        );
+                        entered = true;
+                    }
+                    _ => builder.feed_to(Point::new(start, *y, z), MoveKind::Plunge, tool.plunge_feed),
                 }
-            }
-            else {
-                for (start, end) in spans {
-                    builder.rapid_to(Point::new(start, *y, safe_z));
-                    builder.feed_to(Point::new(start, *y, z), MoveKind::Plunge, tool.plunge_feed);
-                    builder.feed_to(Point::new(end, *y, z), MoveKind::Cut, tool.feed);
-                    let at = builder.at;
-                    builder.rapid_to(Point::new(at.x, at.y, safe_z));
-                }
+                builder.feed_to(Point::new(end, *y, z), MoveKind::Cut, tool.feed);
+                let at = builder.at;
+                builder.rapid_to(Point::new(at.x, at.y, safe_z));
             }
             forward = !forward;
         }
@@ -403,7 +442,20 @@ fn pocket_plain(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
         builder.rapid_to(Point::new(x0, y0, safe_z));
-        builder.feed_to(Point::new(x0, y0, z), MoveKind::Plunge, tool.plunge_feed);
+        match operation.ramp {
+            Some(ramp) => ramp_entry(
+                builder,
+                Point::new(x0, y0, safe_z),
+                Point::new(x1, y0, safe_z),
+                z,
+                ramp,
+                tool.plunge_feed,
+                tool.feed,
+            ),
+            None => {
+                builder.feed_to(Point::new(x0, y0, z), MoveKind::Plunge, tool.plunge_feed);
+            }
+        }
         let mut forward = true;
         for (index, y) in lines.iter().enumerate() {
             if index > 0 {
@@ -447,7 +499,20 @@ fn pocket_spiral(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
         let z = stock_height - depth;
         let first = insets[0];
         builder.rapid_to(Point::new(operation.x + first, operation.y + first, safe_z));
-        builder.feed_to(Point::new(operation.x + first, operation.y + first, z), MoveKind::Plunge, tool.plunge_feed);
+        match operation.ramp {
+            Some(ramp) => ramp_entry(
+                builder,
+                Point::new(operation.x + first, operation.y + first, safe_z),
+                Point::new(operation.x + operation.width - first, operation.y + first, safe_z),
+                z,
+                ramp,
+                tool.plunge_feed,
+                tool.feed,
+            ),
+            None => {
+                builder.feed_to(Point::new(operation.x + first, operation.y + first, z), MoveKind::Plunge, tool.plunge_feed);
+            }
+        }
         for (index, inset) in insets.iter().enumerate() {
             let x0 = operation.x + inset;
             let y0 = operation.y + inset;
@@ -491,10 +556,25 @@ fn pocket_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
     }
     let first = rings.first().copied().unwrap_or(0.0);
 
+    let chord = std::f64::consts::TAU / RING_SEGMENTS as f64;
+
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
         builder.rapid_to(Point::new(centre.x + first, centre.y, safe_z));
-        builder.feed_to(Point::new(centre.x + first, centre.y, z), MoveKind::Plunge, tool.plunge_feed);
+        match operation.ramp {
+            Some(ramp) => ramp_entry(
+                builder,
+                Point::new(centre.x + first, centre.y, safe_z),
+                Point::new(centre.x + first * chord.cos(), centre.y + first * chord.sin(), safe_z),
+                z,
+                ramp,
+                tool.plunge_feed,
+                tool.feed,
+            ),
+            None => {
+                builder.feed_to(Point::new(centre.x + first, centre.y, z), MoveKind::Plunge, tool.plunge_feed);
+            }
+        }
         for (index, ring) in rings.iter().enumerate() {
             let start = Point::new(centre.x + ring, centre.y, z);
             if index > 0 {
@@ -643,6 +723,51 @@ impl Builder {
             loop_count: (spiral || circle).then_some(self.loop_count),
             segments: std::mem::take(&mut self.segments),
         }
+    }
+}
+
+/// Emits the ramp entry of one Z level and ends exactly at `target_z`.
+///
+/// `start` is the clearance-plane point above the first cutting move of the
+/// level and `end` is the far end of that move. The cutter travels exactly
+/// `ramp` millimetres horizontally along that straight line at the cutting
+/// feed, folding back at both ends when `ramp` is longer than the segment, and
+/// its Z descends linearly from `start.z` to `target_z`. The last descending
+/// move lands on `target_z`, and a final cutting move returns to `start` at
+/// `target_z`, so the caller can run the normal level path unchanged and no
+/// move goes below the level depth. A degenerate segment falls back to a
+/// vertical plunge at the plunge feed.
+fn ramp_entry(builder: &mut Builder, start: Point, end: Point, target_z: f64, ramp: f64, plunge_feed: f64, feed: f64) {
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let span = (dx * dx + dy * dy).sqrt();
+    let drop = start.z - target_z;
+    if span <= TOLERANCE || drop <= TOLERANCE || ramp <= TOLERANCE {
+        builder.feed_to(Point::new(start.x, start.y, target_z), MoveKind::Plunge, plunge_feed);
+        return;
+    }
+    let ux = dx / span;
+    let uy = dy / span;
+    let mut position = 0.0;
+    let mut travelled = 0.0;
+    let mut forward = true;
+    while travelled < ramp - TOLERANCE {
+        let available = if forward { span - position } else { position };
+        if available <= TOLERANCE {
+            forward = !forward;
+            continue;
+        }
+        let step = (ramp - travelled).min(available);
+        position = if forward { position + step } else { position - step };
+        travelled += step;
+        let z = if travelled >= ramp - TOLERANCE { target_z } else { start.z - drop * travelled / ramp };
+        builder.feed_to(Point::new(start.x + ux * position, start.y + uy * position, z), MoveKind::Cut, feed);
+        if position <= TOLERANCE || position >= span - TOLERANCE {
+            forward = !forward;
+        }
+    }
+    if position > TOLERANCE {
+        builder.feed_to(Point::new(start.x, start.y, target_z), MoveKind::Cut, feed);
     }
 }
 

@@ -59,6 +59,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "drill": "supported",
     "engrave": "supported",
     "engraveClosed": "supported",
+    "ramp": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"

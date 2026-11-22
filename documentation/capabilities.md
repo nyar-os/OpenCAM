@@ -22,6 +22,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | `engrave` along a polyline (no cutter-radius compensation) | ✅ supported |
 | `engrave` closed polyline (`closed`) | ✅ supported |
+| `contour`, `pocket` and `engrave` ramp entry (`ramp`) | ✅ supported |
 | multi-pass Z depth (`stepdown`) | ✅ supported |
 | raster spacing (`stepover`) | ✅ supported |
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
@@ -98,7 +99,23 @@ The machine-readable version is printed by `open-cam capabilities` and by
     compensation is applied. Adjacent duplicate points are rejected by
     validation instead of being silently skipped. The closing cut counts toward
     `cutLength` and the cycle time like every other cutting move.
-11. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+11. **Ramp entry.** `ramp` is a horizontal length in millimetres, not an angle.
+    When set, a Z level no longer enters with one vertical plunge. The cutter
+    starts at the clearance plane above the start of the first cutting move of
+    the level, covers exactly `ramp` millimetres horizontally along that first
+    cutting direction at the cutting feed while descending linearly from the
+    clearance plane to the level depth, folds back at both ends of the first
+    segment when `ramp` is longer than it, and returns to the entry point at the
+    level depth. The rest of the level path is therefore unchanged and its cuts
+    keep their full length. Every ramp move is a `cut` move, so `cutLength`,
+    cycle time and G-code include it. The descent ends exactly at the level
+    depth, so no move goes below it. Only `contour` (including its tabbed form),
+    `pocket` (raster, spiral, circular or island-aware) and `engrave` accept a
+    ramp; every other kind reports `operation/invalid`, as does a ramp that is
+    not finite and positive. An island-aware pocket ramps only the first entry
+    of each level and keeps the vertical re-entry of later spans; a contour
+    keeps the vertical plunge at every tab end.
+12. **Metrics.** Cutting length and time use the cutting feed; rapid length and
     time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
 ## G-code
@@ -117,7 +134,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)` |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, tabs, `closed`, `ramp` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1`, a positive `width` and `height`, `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -142,6 +159,7 @@ outside the stock) do not make `ok` false.
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
 | `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, closed square perimeter and extra move, open/closed move difference, closed first/last coincidence rejection, non-engrave `closed` rejection, default document byte identity, validation codes, G-code, empty `path` serialization |
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
+| `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -168,6 +186,12 @@ outside the stock) do not make `ok` false.
   compensation, curve fitting, tangency, lead-in or lead-out moves. A closed
   polyline only adds a straight cut back to its first point. Holes and islands
   are not supported by an engrave operation.
+- A ramp entry is a straight-line descent along the first cutting direction of
+  the level, folded back inside that first segment and returned to its start; it
+  is not a helical, spiral or trochoidal entry and does not follow corners. It
+  ramps only the first entry of a level, so island re-entries and contour
+  tab-end plunges stay vertical, and it cannot be combined with `drill` or
+  `face`.
 - The validator checks geometry against the stock, not against fixtures, clamps
   or machine travel limits.
 - Cycle time is a kinematic estimate, not a machine simulation.

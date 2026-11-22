@@ -51,7 +51,7 @@ A tool referenced by an operation reports `tool/in-use`; an unknown id reports
 
 ```shell
 open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
-                      [--stepdown <d>] [--stepover <d>] [--name <name>]
+                      [--stepdown <d>] [--stepover <d>] [--ramp <mm>] [--name <name>]
                       [--strategy raster|spiral]
                       [--shape rect|circle]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
@@ -73,6 +73,16 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
 the tool diameter for facing and 60 % for pocketing. The operation is validated
 against the stock before it is saved.
+
+`--ramp <mm>` is an optional horizontal length in millimetres, not an angle.
+Without it every Z level starts with a vertical plunge. With it the cutter
+starts at the clearance plane above the first cutting move of the level and
+descends to the level depth while covering exactly `<mm>` millimetres
+horizontally along that first cutting direction, folding back inside that first
+segment when `<mm>` is longer than it and returning to the entry point at depth;
+the rest of the level path keeps its full length. `ramp` applies only to
+`contour`, `pocket` and `engrave`. A value that is not finite and greater than
+zero reports `operation/invalid`, as does `--ramp` on `face` or `drill`.
 
 `--strategy raster|spiral` selects the pocket clearing pattern and defaults to
 `raster`. `spiral` walks concentric closed rectangles from the pocket shrunk by
@@ -202,7 +212,7 @@ open-cam create bracket.ocam
 open-cam stock bracket.ocam --width 120 --depth 80 --height 12
 open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 --plunge 300
 open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
-    --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40 \
+    --depth 3 --stepdown 1 --ramp 8 --x 20 --y 20 --width 60 --height 40 \
     --island 40,26,20,20
 open-cam operation add bracket.ocam --id spiral --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --strategy spiral --x 20 --y 20 --width 60 --height 40

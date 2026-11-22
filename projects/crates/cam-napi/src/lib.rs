@@ -183,6 +183,7 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
     let mut operation = Operation::new(id.clone(), kind, tool, depth, stepdown);
     operation.name = request.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
     operation.stepover = number_field(&request, "stepover")?;
+    operation.ramp = number_field(&request, "ramp")?;
     operation.x = number_field(&request, "x")?.unwrap_or(0.0);
     operation.y = number_field(&request, "y")?.unwrap_or(0.0);
     operation.width = number_field(&request, "width")?.unwrap_or(0.0);

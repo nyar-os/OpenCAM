@@ -19,7 +19,7 @@ Usage:
                      [--plunge <f>] [--number <n>] [--name <name>]
   ocam tool remove <file> --id <id>
   ocam operation add <file> --id <id> --kind face|contour|pocket|drill|engrave --tool <id>
-                     --depth <d> [--stepdown <d>] [--stepover <d>] [--name <name>]
+                     --depth <d> [--stepdown <d>] [--stepover <d>] [--ramp <mm>] [--name <name>]
                      [--strategy raster|spiral]
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
@@ -172,6 +172,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--depth",
                     "--stepdown",
                     "--stepover",
+                    "--ramp",
                     "--name",
                     "--strategy",
                     "--shape",
@@ -195,6 +196,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             let mut operation = Operation::new(id, kind, tool, depth, stepdown);
             operation.name = values.value("--name").unwrap_or(id).to_string();
             operation.stepover = values.optional_number("--stepover")?;
+            operation.ramp = values.optional_number("--ramp")?;
             operation.strategy = values.value("--strategy").map(str::to_string);
             operation.shape = values.value("--shape").map(str::to_string);
             operation.x = values.number_or("--x", 0.0)?;
