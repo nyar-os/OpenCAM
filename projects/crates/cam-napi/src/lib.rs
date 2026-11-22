@@ -193,6 +193,11 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
         Some(Value::String(value)) => Some(value.clone()),
         Some(_) => return Err(argument_error("`strategy` must be a string")),
     };
+    operation.shape = match request.get("shape") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => return Err(argument_error("`shape` must be a string")),
+    };
     if let Some(Value::Array(holes)) = request.get("holes") {
         let mut parsed = Vec::with_capacity(holes.len());
         for hole in holes {

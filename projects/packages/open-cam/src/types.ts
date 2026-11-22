@@ -16,6 +16,9 @@ export type OperationKind = 'face' | 'contour' | 'pocket' | 'drill';
 /** Pocket clearing pattern: axis-aligned raster or concentric rectangles. */
 export type PocketStrategy = 'raster' | 'spiral';
 
+/** Pocket outline: an axis-aligned rectangle (default) or a circle. */
+export type PocketShape = 'rect' | 'circle';
+
 /** Export formats `exportDocument()` can write. */
 export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md';
 
@@ -82,6 +85,8 @@ export interface Operation {
     readonly peck: number | null;
     /** Pocket clearing pattern; absent means `raster`. */
     readonly strategy?: PocketStrategy;
+    /** Pocket outline; absent means `rect`. */
+    readonly shape?: PocketShape;
 }
 
 /** Summary of one document as written to disk. */
@@ -133,6 +138,8 @@ export interface OperationPath {
     readonly kind: OperationKind;
     /** Present only for a spiral pocket. */
     readonly strategy?: PocketStrategy;
+    /** Present only for a circular pocket. */
+    readonly shape?: 'circle';
     readonly tool: string;
     readonly moves: number;
     readonly cutLength: number;
@@ -145,7 +152,7 @@ export interface OperationPath {
     readonly skippedLength: number;
     /** Number of raster passes skipped because of island keep-out zones. */
     readonly skippedSegments: number;
-    /** Present only for a spiral pocket. */
+    /** Present only for a spiral or circular pocket. */
     readonly loopCount?: number;
     readonly segments: readonly Move[];
 }
@@ -230,6 +237,8 @@ export interface OperationRequest {
     readonly peck?: number;
     /** Pocket clearing pattern; `raster` when omitted. */
     readonly strategy?: PocketStrategy;
+    /** Pocket outline; `rect` when omitted. `circle` uses `width` as the diameter. */
+    readonly shape?: PocketShape;
 }
 
 /** Disclosure level of one capability entry. */

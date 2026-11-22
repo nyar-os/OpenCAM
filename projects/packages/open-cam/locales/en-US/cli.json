@@ -6,7 +6,7 @@
             "open-cam stock <file> --width <w> --depth <d> --height <h>",
             "open-cam tool add <file> --id <id> --diameter <d> --spindle <rpm> --feed <f> [--flutes <n>] [--plunge <f>] [--number <n>] [--name <name>]",
             "open-cam tool remove <file> --id <id>",
-            "open-cam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id> --depth <d> [--stepdown <d>] [--stepover <d>] [--strategy raster|spiral] [--x <x>] [--y <y>] [--width <w>] [--height <h>] [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...",
+            "open-cam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id> --depth <d> [--stepdown <d>] [--stepover <d>] [--strategy raster|spiral] [--shape rect|circle] [--x <x>] [--y <y>] [--width <w>] [--height <h>] [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...",
             "open-cam operation remove <file> --id <id>",
             "open-cam validate <file>",
             "open-cam toolpaths <file> [--out report.json]",

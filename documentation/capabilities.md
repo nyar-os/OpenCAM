@@ -17,6 +17,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
+| `pocket` circle (concentric ring) clearing | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | multi-pass Z depth (`stepdown`) | ✅ supported |
 | raster spacing (`stepover`) | ✅ supported |
@@ -55,7 +56,18 @@ The machine-readable version is printed by `open-cam capabilities` and by
    report adds `strategy` and `loopCount` for spiral operations only; `loopCount`
    counts closed loops over every depth level, and cut/rapid length and time come
    from the generated moves. Islands are not supported by `spiral`.
-7. **Island-aware pocket.** Every island is expanded by the cutter radius. On
+7. **Circular pocket.** `shape: "circle"` treats `width` as the diameter and
+   requires `height` equal to `width`. With pocket radius `R = width / 2` and
+   cutter radius `r`, the first ring has radius `R − r`; every next ring shrinks
+   by `stepover` until the radius is no longer positive. Each ring is
+   approximated by 72 cutting segments, closes at the cutting feed and the
+   cutter advances to the next ring at the cutting feed without lifting. A final
+   cutting move reaches the centre so the core is always cleared. Every ring
+   point is at most `R − r` from the centre, so no cutting point leaves the
+   pocket or comes closer than `r` to its wall. `circle` supports neither an
+   explicit `strategy` nor islands. The report adds `shape: "circle"` and
+   `loopCount`, which counts the closed rings over every depth level.
+8. **Island-aware pocket.** Every island is expanded by the cutter radius. On
    each raster line the expanded islands become keep-out intervals that split
    the line into cut spans; only spans outside every keep-out zone are cut, so
    every cutting point — including the span endpoints — stays at least `r` from
@@ -63,11 +75,11 @@ The machine-readable version is printed by `open-cam capabilities` and by
    keep-out zone and plunges again on the far side. The report records
    `islandCount`, `skippedLength` and `skippedSegments`; all three are `0` when
    an operation has no islands.
-8. **Drilling.** Each hole is a rapid to the centre, a plunge to
+9. **Drilling.** Each hole is a rapid to the centre, a plunge to
    `height − depth`, and a rapid retract. G-code uses `G81` (or `G83` with `Q` for
    peck) at the clearance plane `R` and cancels the cycle with `G80`.
-9. **Metrics.** Cutting length and time use the cutting feed; rapid length and
-   time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
+10. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+    time use a fixed 8000 mm/min traverse. Cycle time is the sum of both.
 
 ## G-code
 
@@ -92,7 +104,9 @@ and `-0` is normalised to `0`.
 | `operation/island-outside-pocket` | an island is not fully inside its pocket |
 | `operation/island-too-close` | an island expanded by the cutter radius does not fit inside the pocket shrunk by the cutter radius |
 | `operation/island-overlap` | two expanded islands overlap, so the cutter cannot pass between them |
-| `operation/strategy-island` | a `spiral` pocket declares islands, which the strategy does not support |
+| `operation/strategy-island` | a `spiral` pocket declares islands, or a `circle` pocket declares islands, which the strategy does not support |
+| `operation/strategy-circle` | a `circle` pocket declares an explicit `strategy`, which only `rect` pockets accept |
+| `operation/circle-size` | a `circle` pocket has `height` different from `width` (the diameter) |
 | `path/outside-stock` | a profile, pocket or hole leaves the stock |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
@@ -105,6 +119,7 @@ outside the stock) do not make `ok` false.
 | `tests/toolpath.rs` | depth levels, closed contour, pocket containment, drill plunges, determinism |
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
+| `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -113,11 +128,16 @@ outside the stock) do not make `ok` false.
 ## Limitations
 
 - Rasters are axis-aligned and spiral pockets are concentric rectangles; there
-  is no trochoidal, adaptive or arc-following strategy.
+  is no trochoidal, adaptive or arc-following strategy. Circular pockets are
+  approximated by 72 linear segments per ring, not by `G2`/`G3` arcs.
 - Spiral pockets do not support islands and reject them with
   `operation/strategy-island`; use the raster strategy when islands are needed.
-- Pockets are rectangular; islands are rectangles inside the pocket. Arbitrary
-  pocket outlines, fillets and adaptive corner clearing are not supported.
+- Circular pockets support only concentric rings: an explicit `strategy` is
+  rejected with `operation/strategy-circle` and islands with
+  `operation/strategy-island`.
+- Pockets are rectangles or full circles; islands are rectangles inside a
+  rectangular pocket. Arbitrary pocket outlines, fillets and adaptive corner
+  clearing are not supported.
 - Contours are rectangles with a constant cutter-radius offset; no arcs or
   lead-in/lead-out moves.
 - The validator checks geometry against the stock, not against fixtures, clamps

@@ -189,8 +189,10 @@ impl Island {
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`, and
-/// `peck` only by `drill`. `strategy` selects the pocket clearing pattern:
-/// `raster` (the default) or `spiral` (concentric rectangles).
+/// `peck` only by `drill`. `strategy` selects the rectangle clearing pattern:
+/// `raster` (the default) or `spiral` (concentric rectangles). `shape` selects
+/// the pocket outline: `rect` (the default) or `circle`, which uses `width` as
+/// the diameter and needs `height` equal to `width`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
@@ -236,6 +238,13 @@ pub struct Operation {
     /// `operation/invalid` by validation instead of a parse error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
+    /// Pocket outline: `rect` (default) or `circle`.
+    ///
+    /// A circle uses `width` as its diameter and moves the cutter in concentric
+    /// rings. Kept as a string so an unknown value is reported as
+    /// `operation/invalid` by validation instead of a parse error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<String>,
 }
 
 impl Operation {
@@ -257,6 +266,7 @@ impl Operation {
             islands: Vec::new(),
             peck: None,
             strategy: None,
+            shape: None,
         }
     }
 }

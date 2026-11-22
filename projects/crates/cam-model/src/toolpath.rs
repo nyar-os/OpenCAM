@@ -21,6 +21,9 @@ pub const CLEARANCE: f64 = 5.0;
 /// Geometric tolerance used when splitting raster lines around islands, in millimetres.
 const TOLERANCE: f64 = 1e-9;
 
+/// Number of linear segments used to approximate one circular ring.
+const RING_SEGMENTS: usize = 72;
+
 /// Kind of one machine move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +63,9 @@ pub struct OperationPath {
     /// Pocket strategy that generated this path; omitted for raster pockets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
+    /// Pocket outline that generated this path; omitted for rectangular pockets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shape: Option<String>,
     /// Tool identifier.
     pub tool: String,
     /// Number of generated moves.
@@ -78,7 +84,7 @@ pub struct OperationPath {
     pub skipped_length: f64,
     /// Number of raster passes skipped because of island keep-out zones.
     pub skipped_segments: usize,
-    /// Closed loops emitted by a spiral pocket; omitted for raster pockets.
+    /// Closed loops emitted by a spiral or circular pocket; omitted otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loop_count: Option<usize>,
     /// Explicit moves in execution order.
@@ -131,6 +137,9 @@ pub fn generate(document: &CamDocument) -> Result<ToolpathReport, CamError> {
         match operation.kind {
             OperationKind::Face => face(operation, tool, &document.stock, safe_z, &mut builder),
             OperationKind::Contour => contour(operation, tool, document.stock.height, safe_z, &mut builder),
+            OperationKind::Pocket if operation.shape.as_deref() == Some("circle") => {
+                pocket_circle(operation, tool, document.stock.height, safe_z, &mut builder);
+            }
             OperationKind::Pocket if operation.strategy.as_deref() == Some("spiral") => {
                 pocket_spiral(operation, tool, document.stock.height, safe_z, &mut builder);
             }
@@ -323,6 +332,53 @@ fn pocket_spiral(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
     }
 }
 
+/// Circular pocket: concentric rings, each inset by `stepover`.
+///
+/// With pocket radius `R = width / 2` and cutter radius `r`, the first ring has
+/// radius `R − r`; every next ring shrinks by `stepover` until the radius is no
+/// longer positive. Rings are approximated by [`RING_SEGMENTS`] cutting segments
+/// and close at the cutting feed, and the cutter advances to the next ring at
+/// the cutting feed without lifting. A final cutting move reaches the centre so
+/// the core is always cleared. Every ring point is at most `R − r` from the
+/// centre, so no cutting point leaves the pocket or comes closer than `r` to
+/// its wall.
+fn pocket_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
+    let radius = tool.radius();
+    let stepover = operation.stepover.unwrap_or(0.6 * tool.diameter);
+    let pocket_radius = operation.width / 2.0;
+    let centre = Point::new(operation.x + pocket_radius, operation.y + pocket_radius, 0.0);
+
+    let mut rings = Vec::new();
+    let mut ring = pocket_radius - radius;
+    while ring > TOLERANCE {
+        rings.push(ring);
+        ring -= stepover;
+    }
+    let first = rings.first().copied().unwrap_or(0.0);
+
+    for depth in level_depths(operation.depth, operation.stepdown) {
+        let z = stock_height - depth;
+        builder.rapid_to(Point::new(centre.x + first, centre.y, safe_z));
+        builder.feed_to(Point::new(centre.x + first, centre.y, z), MoveKind::Plunge, tool.plunge_feed);
+        for (index, ring) in rings.iter().enumerate() {
+            let start = Point::new(centre.x + ring, centre.y, z);
+            if index > 0 {
+                builder.feed_to(start, MoveKind::Cut, tool.feed);
+            }
+            for step in 1..=RING_SEGMENTS {
+                let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
+                let point = Point::new(centre.x + ring * angle.cos(), centre.y + ring * angle.sin(), z);
+                builder.feed_to(point, MoveKind::Cut, tool.feed);
+            }
+            builder.feed_to(start, MoveKind::Cut, tool.feed);
+            builder.loop_count += 1;
+        }
+        builder.feed_to(Point::new(centre.x, centre.y, z), MoveKind::Cut, tool.feed);
+        let at = builder.at;
+        builder.rapid_to(Point::new(at.x, at.y, safe_z));
+    }
+}
+
 /// X intervals of one raster line that stay outside every island keep-out zone.
 fn island_keep_out(operation: &Operation, radius: f64, y: f64, x0: f64, x1: f64) -> Vec<(f64, f64)> {
     let mut blocked = Vec::new();
@@ -434,10 +490,12 @@ impl Builder {
 
     fn finish(mut self, operation: &Operation) -> OperationPath {
         let spiral = operation.kind == OperationKind::Pocket && operation.strategy.as_deref() == Some("spiral");
+        let circle = operation.kind == OperationKind::Pocket && operation.shape.as_deref() == Some("circle");
         OperationPath {
             operation: operation.id.clone(),
             kind: operation.kind,
             strategy: spiral.then(|| "spiral".to_string()),
+            shape: circle.then(|| "circle".to_string()),
             tool: operation.tool.clone(),
             moves: self.segments.len(),
             cut_length: self.cut_length,
@@ -447,7 +505,7 @@ impl Builder {
             island_count: self.island_count,
             skipped_length: self.skipped_length,
             skipped_segments: self.skipped_segments,
-            loop_count: spiral.then_some(self.loop_count),
+            loop_count: (spiral || circle).then_some(self.loop_count),
             segments: std::mem::take(&mut self.segments),
         }
     }

@@ -209,6 +209,21 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` strategy `{other}` is unknown; only `raster` or `spiral` is supported", operation.id),
         )),
     }
+    match operation.shape.as_deref() {
+        None | Some("rect") => {}
+        Some("circle") => {
+            if operation.kind != OperationKind::Pocket {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` shape `circle` is only supported by `pocket`", operation.id),
+                ));
+            }
+        }
+        Some(other) => issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` shape `{other}` is unknown; only `rect` or `circle` is supported", operation.id),
+        )),
+    }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {
@@ -234,6 +249,36 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
         }
         OperationKind::Pocket => {
             let spiral = operation.strategy.as_deref() == Some("spiral");
+            let circle = operation.shape.as_deref() == Some("circle");
+            if circle {
+                if operation.strategy.is_some() {
+                    issues.push(Issue::error(
+                        "operation/strategy-circle",
+                        format!(
+                            "operation `{}` uses shape `circle`, which supports only concentric rings and no explicit strategy",
+                            operation.id
+                        ),
+                    ));
+                }
+                if !operation.islands.is_empty() {
+                    issues.push(Issue::error(
+                        "operation/strategy-island",
+                        format!("operation `{}` uses shape `circle`, which does not support islands", operation.id),
+                    ));
+                }
+                if positive(operation.width)
+                    && positive(operation.height)
+                    && (operation.width - operation.height).abs() > EPSILON
+                {
+                    issues.push(Issue::error(
+                        "operation/circle-size",
+                        format!(
+                            "operation `{}` circular pocket needs height equal to width, which is the diameter",
+                            operation.id
+                        ),
+                    ));
+                }
+            }
             if spiral && !operation.islands.is_empty() {
                 issues.push(Issue::error(
                     "operation/strategy-island",
@@ -247,7 +292,7 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                     format!("operation `{}` pocket is narrower than the tool diameter {}", operation.id, tool.diameter),
                 ));
             }
-            if !spiral {
+            if !spiral && !circle {
                 check_islands(operation, tool, issues);
             }
         }

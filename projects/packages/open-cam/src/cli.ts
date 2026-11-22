@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
 import { OpenCAM } from './open-cam.js';
-import type { ExportFormat, Hole, Island, OperationKind, PocketStrategy } from './types.js';
+import type { ExportFormat, Hole, Island, OperationKind, PocketShape, PocketStrategy } from './types.js';
 
 interface CliLocale {
     readonly cli: {
@@ -321,7 +321,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             'operation add <file>',
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover',
-                '--strategy', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island',
+                '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--island',
             ],
             [],
             async (document, parsed) => {
@@ -329,6 +329,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                 const id = required(parsed, '--id');
                 const holes = parsed.options.get('--holes');
                 const strategy = parsed.options.get('--strategy');
+                const shape = parsed.options.get('--shape');
                 print(
                     await document.addOperation({
                         id,
@@ -339,6 +340,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         stepdown: number(parsed, '--stepdown') ?? depth,
                         stepover: number(parsed, '--stepover'),
                         strategy: strategy === undefined ? undefined : pocketStrategy(strategy),
+                        shape: shape === undefined ? undefined : (shape as PocketShape),
                         x: number(parsed, '--x') ?? 0,
                         y: number(parsed, '--y') ?? 0,
                         width: number(parsed, '--width') ?? 0,

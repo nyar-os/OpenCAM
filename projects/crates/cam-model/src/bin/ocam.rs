@@ -21,6 +21,7 @@ Usage:
   ocam operation add <file> --id <id> --kind face|contour|pocket|drill --tool <id>
                      --depth <d> [--stepdown <d>] [--stepover <d>] [--name <name>]
                      [--strategy raster|spiral]
+                     [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--island <x,y,w,h>]...
   ocam operation remove <file> --id <id>
@@ -172,6 +173,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--stepover",
                     "--name",
                     "--strategy",
+                    "--shape",
                     "--x",
                     "--y",
                     "--width",
@@ -191,6 +193,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             operation.name = values.value("--name").unwrap_or(id).to_string();
             operation.stepover = values.optional_number("--stepover")?;
             operation.strategy = values.value("--strategy").map(str::to_string);
+            operation.shape = values.value("--shape").map(str::to_string);
             operation.x = values.number_or("--x", 0.0)?;
             operation.y = values.number_or("--y", 0.0)?;
             operation.width = values.number_or("--width", 0.0)?;

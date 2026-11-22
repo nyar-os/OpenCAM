@@ -53,6 +53,7 @@ A tool referenced by an operation reports `tool/in-use`; an unknown id reports
 open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--stepdown <d>] [--stepover <d>] [--name <name>]
                       [--strategy raster|spiral]
+                      [--shape rect|circle]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                       [--holes <x,y;x,y>] [--peck <d>]
                       [--island <x,y,w,h>]...
@@ -62,7 +63,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius |
-| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, repeatable `--island` |
+| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` |
 
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
@@ -83,6 +84,16 @@ portion that falls inside an island expanded by the cutter radius and crosses
 the gap at the clearance plane. An island must lie inside the pocket, far enough
 from the wall that its expanded rectangle fits inside the pocket shrunk by the
 cutter radius, and expanded islands may not overlap.
+
+`--shape rect|circle` selects the pocket outline and defaults to `rect`. An
+unknown value reports `operation/invalid`. `circle` treats `--width` as the
+diameter and requires `--height` equal to `--width`; a mismatch reports
+`operation/circle-size`. A circular pocket walks concentric rings from radius
+`width / 2 − r` inward, one `stepover` per ring, closes every ring at the
+cutting feed, advances between rings without retracting and finishes at the
+centre. `circle` accepts no explicit `--strategy` (`operation/strategy-circle`)
+and no `--island` (`operation/strategy-island`); with `rect` both behave exactly
+as before.
 
 ## operation remove
 
@@ -111,7 +122,9 @@ contains `safeZ`, `rapidFeed`, total `cutLength`, `rapidLength`,
 also reports `islandCount`, `skippedLength` and `skippedSegments`; they are `0`
 for operations without islands. A spiral pocket additionally reports `strategy`
 (`"spiral"`) and `loopCount`, the number of closed loops emitted over every
-depth level; raster operations keep the previous shape and add no fields.
+depth level; a circular pocket reports `shape` (`"circle"`) and `loopCount`, the
+number of closed rings. Raster operations keep the previous shape and add no
+fields.
 
 ## gcode
 
@@ -164,6 +177,8 @@ open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
     --island 40,26,20,20
 open-cam operation add bracket.ocam --id spiral --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --strategy spiral --x 20 --y 20 --width 60 --height 40
+open-cam operation add bracket.ocam --id bore --kind pocket --tool t6 \
+    --depth 3 --stepdown 1 --shape circle --x 20 --y 20 --width 40 --height 40
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam gcode bracket.ocam --out bracket.nc
