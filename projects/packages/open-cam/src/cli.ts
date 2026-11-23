@@ -512,13 +512,32 @@ operationCommand
         }),
     );
 operationCommand
-    .command('remove', 'cli.cmd.operation-remove')
+    .command('delete|remove', 'cli.cmd.operation-delete')
     .option('--id <id>', 'cli.opt.id')
     .actionCtx(async (options, _args, ctx) =>
         guard(ctx, async () => {
-            const file = positional(ctx, options, 'operation remove <file>');
+            const file = positional(ctx, options, 'operation delete <file>');
             await withDocument(file, async (document) => {
-                print(await document.removeOperation(required(ctx, options, '--id')));
+                print(await document.deleteOperation(required(ctx, options, '--id')));
+            });
+            return 0;
+        }),
+    );
+operationCommand
+    .command('duplicate', 'cli.cmd.operation-duplicate')
+    .option('--id <id>', 'cli.opt.id')
+    .option('--new-id <id>', 'cli.opt.new-id')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'operation duplicate <file>');
+            await withDocument(file, async (document) => {
+                const newId = text(options, 'new-id');
+                print(
+                    await document.duplicateOperation({
+                        id: required(ctx, options, '--id'),
+                        ...(newId === undefined ? {} : { newId }),
+                    }),
+                );
             });
             return 0;
         }),
