@@ -4,13 +4,16 @@
  *
  * Every command maps options onto one session operation of `OpenCAM`; editing,
  * validation, toolpath generation and export stay in the native core. The CLI
+ * is assembled with `@wae/commander` over the `new OpenCAM(options?)` SDK and
  * owns argument parsing, help text, printing and exit codes, and nothing else.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { createCli, type CommandContext, type ParsedOptions } from '@wae/commander';
 
 import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
@@ -27,124 +30,84 @@ import type {
     TabSettings,
 } from './types.js';
 
-interface CliLocale {
-    readonly cli: {
-        readonly intro: string;
-        readonly usage: readonly string[];
-        readonly exit: string;
-        readonly message: Readonly<Record<string, string>>;
-        readonly error: Readonly<Record<string, string>>;
-    };
-}
-
 const here = path.dirname(fileURLToPath(import.meta.url));
-const locale = JSON.parse(
-    fs.readFileSync(path.join(here, '..', 'locales', 'en-US', 'cli.json'), 'utf8'),
-) as CliLocale;
 
-function fill(template: string, values: Readonly<Record<string, string>> = {}): string {
-    return template.replace(/\{(\w+)\}/g, (_match, key: string) => values[key] ?? `{${key}}`);
-}
+/** One session serves every command; it is disposed when the run finishes. */
+const app = new OpenCAM();
 
-function failure(code: OpenCAMErrorCode, key: string, values?: Readonly<Record<string, string>>): OpenCAMError {
-    return new OpenCAMError(code, fill(locale.cli.error[key] ?? key, values));
-}
+const cli = createCli('open-cam').locales(path.join(here, '..', 'locales')).intro('cli.intro');
 
-function printUsage(): void {
-    process.stdout.write(`${locale.cli.intro}\n\n${locale.cli.usage.join('\n')}\n\n${locale.cli.exit}\n`);
-}
+// Exported for contract audits that import the built entry to inspect the
+// command tree. Nothing runs until the file is executed as the program entry.
+export { cli };
 
-interface Parsed {
-    readonly positionals: readonly string[];
-    readonly flags: ReadonlySet<string>;
-    readonly options: ReadonlyMap<string, string>;
-    readonly repeated: ReadonlyMap<string, readonly string[]>;
-}
+const text = (options: ParsedOptions, key: string): string | undefined =>
+    typeof options[key] === 'string' ? options[key] : undefined;
 
-function parse(args: readonly string[], valueOptions: readonly string[], flagOptions: readonly string[]): Parsed {
-    const positionals: string[] = [];
-    const flags = new Set<string>();
-    const options = new Map<string, string>();
-    const repeated = new Map<string, string[]>();
-    let index = 0;
-    while (index < args.length) {
-        const argument = args[index] as string;
-        if (argument.startsWith('--')) {
-            if (flagOptions.includes(argument)) {
-                flags.add(argument);
-                index += 1;
-            } else if (valueOptions.includes(argument)) {
-                const value = args[index + 1];
-                if (value === undefined || value.startsWith('--')) {
-                    throw failure('cli/missing-value', 'missingValue', { option: argument });
-                }
-                options.set(argument, value);
-                const entries = repeated.get(argument);
-                if (entries === undefined) {
-                    repeated.set(argument, [value]);
-                } else {
-                    entries.push(value);
-                }
-                index += 2;
-            } else {
-                throw failure('cli/unknown-option', 'unknownOption', { option: argument });
-            }
-        } else {
-            positionals.push(argument);
-            index += 1;
-        }
+const flag = (options: ParsedOptions, key: string): boolean => options[key] === true || options[key] === 'true';
+
+/** Values collected for one repeatable option (`--island <x,y,w,h>...`). */
+const values = (options: ParsedOptions, key: string): string[] => {
+    const raw = options[key];
+    if (Array.isArray(raw)) {
+        return raw;
     }
-    return { positionals, flags, options, repeated };
+    return typeof raw === 'string' ? [raw] : [];
+};
+
+/** Locale-backed CLI failure with the stable code kept as the contract. */
+function fail(ctx: CommandContext, code: OpenCAMErrorCode, key: string, args?: Record<string, string>): never {
+    throw new OpenCAMError(code, ctx.t(key, args));
 }
 
-function positional(parsed: Parsed, index: number, usage: string): string {
-    const value = parsed.positionals[index];
+function positional(ctx: CommandContext, options: ParsedOptions, usage: string): string {
+    const value = options._[0];
     if (value === undefined) {
-        throw failure('cli/missing-argument', 'missingArgument', { usage });
+        fail(ctx, 'cli/missing-argument', 'cli.error.missingArgument', { usage });
     }
     return value;
 }
 
-function required(parsed: Parsed, name: string): string {
-    const value = parsed.options.get(name);
+function required(ctx: CommandContext, options: ParsedOptions, name: string): string {
+    const value = text(options, name.slice(2));
     if (value === undefined) {
-        throw failure('cli/missing-option', 'missingOption', { option: name });
+        fail(ctx, 'cli/missing-option', 'cli.error.missingOption', { option: name });
     }
     return value;
 }
 
-function number(parsed: Parsed, name: string): number | undefined {
-    const raw = parsed.options.get(name);
+function number(ctx: CommandContext, options: ParsedOptions, name: string): number | undefined {
+    const raw = text(options, name.slice(2));
     if (raw === undefined) {
         return undefined;
     }
     const value = Number(raw);
     if (!Number.isFinite(value)) {
-        throw failure('cli/invalid-number', 'invalidNumber', { option: name, value: raw });
+        fail(ctx, 'cli/invalid-number', 'cli.error.invalidNumber', { option: name, value: raw });
     }
     return value;
 }
 
-function requiredNumber(parsed: Parsed, name: string): number {
-    const value = number(parsed, name);
+function requiredNumber(ctx: CommandContext, options: ParsedOptions, name: string): number {
+    const value = number(ctx, options, name);
     if (value === undefined) {
-        throw failure('cli/missing-option', 'missingOption', { option: name });
+        fail(ctx, 'cli/missing-option', 'cli.error.missingOption', { option: name });
     }
     return value;
 }
 
-function integer(parsed: Parsed, name: string): number | undefined {
-    const value = number(parsed, name);
+function integer(ctx: CommandContext, options: ParsedOptions, name: string): number | undefined {
+    const value = number(ctx, options, name);
     if (value === undefined) {
         return undefined;
     }
     if (!Number.isInteger(value) || value < 0) {
-        throw failure('cli/invalid-number', 'invalidNumber', { option: name, value: String(value) });
+        fail(ctx, 'cli/invalid-number', 'cli.error.invalidNumber', { option: name, value: String(value) });
     }
     return value;
 }
 
-function exportFormat(value: string): ExportFormat {
+function exportFormat(ctx: CommandContext, value: string): ExportFormat {
     if (value === 'gcode' || value === 'nc' || value === 'tap') {
         return 'gcode';
     }
@@ -154,7 +117,7 @@ function exportFormat(value: string): ExportFormat {
     if (value === 'step' || value === 'stp' || value === 'dxf') {
         throw new NotImplementedError(`${value} export`);
     }
-    throw failure('cli/unknown-format', 'unknownFormat', { format: value });
+    throw fail(ctx, 'cli/unknown-format', 'cli.error.unknownFormat', { format: value });
 }
 
 function operationKind(value: string): OperationKind {
@@ -240,241 +203,308 @@ function print(value: unknown): void {
     console.log(JSON.stringify(value, null, 2));
 }
 
-async function withSession<T>(work: (session: OpenCAM) => Promise<T>): Promise<T> {
-    const session = new OpenCAM();
+/** Opens one document for the duration of a command. */
+async function withDocument(file: string, work: (document: CamDocument) => Promise<void>): Promise<void> {
+    const document = await app.open(file);
+    await work(document);
+}
+
+/** Maps a failure onto the documented exit codes: `capability/*` → 2, else 1. */
+async function guard(ctx: CommandContext, work: () => Promise<number>): Promise<number> {
     try {
-        return await work(session);
-    } finally {
-        await session.dispose();
+        return await work();
+    } catch (error) {
+        if (error instanceof OpenCAMError) {
+            ctx.emitFailure(error);
+            return error.code.startsWith('capability/') ? 2 : 1;
+        }
+        ctx.stderr(error instanceof Error ? error.message : String(error));
+        return 1;
     }
 }
 
-async function dispatch(args: readonly string[]): Promise<number> {
-    const command = args[0];
-    if (command === undefined) {
-        printUsage();
-        return 0;
-    }
-    switch (command) {
-        case '-h':
-        case '--help':
-        case 'help':
-            printUsage();
+cli
+    .command('version', 'cli.cmd.version')
+    .actionCtx(async (_options, _args, ctx) =>
+        guard(ctx, async () => {
+            ctx.stdout('0.0.0');
             return 0;
-        case 'version':
-            console.log('0.0.0');
+        }),
+    );
+
+cli
+    .command('capabilities', 'cli.cmd.capabilities')
+    .actionCtx(async (_options, _args, ctx) =>
+        guard(ctx, async () => {
+            print(await app.capabilities());
             return 0;
-        case 'capabilities':
-            return withSession(async (session) => {
-                print(await session.capabilities());
-                return 0;
-            });
-        case 'create':
-            return withSession(async (session) => {
-                const file = positional(parse(args.slice(1), [], []), 0, 'create <file>');
-                print(await session.create(file).then((document) => document.save()));
-                return 0;
-            });
-        case 'stock':
-            return editDocument(args.slice(1), 'stock <file>', ['--width', '--depth', '--height'], [], async (document, parsed) => {
+        }),
+    );
+
+cli
+    .command('create', 'cli.cmd.create')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'create <file>');
+            print(await app.create(file).then((document) => document.save()));
+            return 0;
+        }),
+    );
+
+cli
+    .command('stock', 'cli.cmd.stock')
+    .option('--width <mm>', 'cli.opt.width')
+    .option('--depth <mm>', 'cli.opt.depth')
+    .option('--height <mm>', 'cli.opt.height')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'stock <file>');
+            await withDocument(file, async (document) => {
                 print(
                     await document.setStock({
-                        width: requiredNumber(parsed, '--width'),
-                        depth: requiredNumber(parsed, '--depth'),
-                        height: requiredNumber(parsed, '--height'),
+                        width: requiredNumber(ctx, options, '--width'),
+                        depth: requiredNumber(ctx, options, '--depth'),
+                        height: requiredNumber(ctx, options, '--height'),
                     }),
                 );
             });
-        case 'tool':
-            return toolCommand(args.slice(1));
-        case 'operation':
-            return operationCommand(args.slice(1));
-        case 'validate':
-            return readDocument(args.slice(1), 'validate <file>', [], [], async (document) => {
+            return 0;
+        }),
+    );
+
+const toolCommand = cli.command('tool', 'cli.cmd.tool');
+toolCommand
+    .command('add', 'cli.cmd.tool-add')
+    .option('--id <id>', 'cli.opt.id')
+    .option('--name <name>', 'cli.opt.name')
+    .option('--number <n>', 'cli.opt.number')
+    .option('--diameter <mm>', 'cli.opt.diameter')
+    .option('--flutes <n>', 'cli.opt.flutes')
+    .option('--spindle <rpm>', 'cli.opt.spindle')
+    .option('--feed <mm/min>', 'cli.opt.feed')
+    .option('--plunge <mm/min>', 'cli.opt.plunge')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'tool add <file>');
+            await withDocument(file, async (document) => {
+                const feed = requiredNumber(ctx, options, '--feed');
+                const id = required(ctx, options, '--id');
+                print(
+                    await document.addTool({
+                        id,
+                        name: text(options, 'name') ?? id,
+                        number: integer(ctx, options, '--number') ?? 1,
+                        diameter: requiredNumber(ctx, options, '--diameter'),
+                        flutes: integer(ctx, options, '--flutes') ?? 2,
+                        spindle: requiredNumber(ctx, options, '--spindle'),
+                        feed,
+                        plungeFeed: number(ctx, options, '--plunge') ?? feed / 3,
+                    }),
+                );
+            });
+            return 0;
+        }),
+    );
+toolCommand
+    .command('remove', 'cli.cmd.tool-remove')
+    .option('--id <id>', 'cli.opt.id')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'tool remove <file>');
+            await withDocument(file, async (document) => {
+                print(await document.removeTool(required(ctx, options, '--id')));
+            });
+            return 0;
+        }),
+    );
+
+const operationCommand = cli.command('operation', 'cli.cmd.operation');
+operationCommand
+    .command('add', 'cli.cmd.operation-add')
+    .option('--id <id>', 'cli.opt.id')
+    .option('--name <name>', 'cli.opt.name')
+    .option('--kind <face|contour|pocket|drill|engrave>', 'cli.opt.kind')
+    .option('--tool <id>', 'cli.opt.tool')
+    .option('--depth <mm>', 'cli.opt.depth')
+    .option('--stepdown <mm>', 'cli.opt.stepdown')
+    .option('--stepover <mm>', 'cli.opt.stepover')
+    .option('--ramp <mm>', 'cli.opt.ramp')
+    .option('--strategy <raster|spiral>', 'cli.opt.strategy')
+    .option('--shape <rect|circle>', 'cli.opt.shape')
+    .option('--x <mm>', 'cli.opt.x')
+    .option('--y <mm>', 'cli.opt.y')
+    .option('--width <mm>', 'cli.opt.width')
+    .option('--height <mm>', 'cli.opt.height')
+    .option('--holes <x,y;x,y>', 'cli.opt.holes')
+    .option('--peck <mm>', 'cli.opt.peck')
+    .option('--dwell <seconds>', 'cli.opt.dwell')
+    .option('--island <x,y,w,h>...', 'cli.opt.island')
+    .option('--path <x,y;x,y>', 'cli.opt.path')
+    .option('--tabs <count,width,height>', 'cli.opt.tabs')
+    .option('--lead <radius,cw|ccw>', 'cli.opt.lead')
+    .option('--closed', 'cli.opt.closed')
+    .option('--finish', 'cli.opt.finish')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'operation add <file>');
+            await withDocument(file, async (document) => {
+                const depth = requiredNumber(ctx, options, '--depth');
+                const id = required(ctx, options, '--id');
+                const holes = text(options, 'holes');
+                const pathValue = text(options, 'path');
+                const strategy = text(options, 'strategy');
+                const shape = text(options, 'shape');
+                const tabs = text(options, 'tabs');
+                const lead = text(options, 'lead');
+                print(
+                    await document.addOperation({
+                        id,
+                        name: text(options, 'name') ?? id,
+                        kind: operationKind(required(ctx, options, '--kind')),
+                        tool: required(ctx, options, '--tool'),
+                        depth,
+                        stepdown: number(ctx, options, '--stepdown') ?? depth,
+                        stepover: number(ctx, options, '--stepover'),
+                        ramp: number(ctx, options, '--ramp'),
+                        strategy: strategy === undefined ? undefined : pocketStrategy(strategy),
+                        shape: shape === undefined ? undefined : (shape as PocketShape),
+                        x: number(ctx, options, '--x') ?? 0,
+                        y: number(ctx, options, '--y') ?? 0,
+                        width: number(ctx, options, '--width') ?? 0,
+                        height: number(ctx, options, '--height') ?? 0,
+                        holes: holes === undefined ? [] : parseHoles(holes),
+                        path: pathValue === undefined ? [] : parsePath(pathValue),
+                        closed: flag(options, 'closed'),
+                        islands: parseIslands(values(options, 'island')),
+                        peck: number(ctx, options, '--peck'),
+                        dwell: number(ctx, options, '--dwell'),
+                        tabs: tabs === undefined ? undefined : parseTabs(tabs),
+                        lead: lead === undefined ? undefined : parseLead(lead),
+                        finish: flag(options, 'finish') ? true : undefined,
+                    }),
+                );
+            });
+            return 0;
+        }),
+    );
+operationCommand
+    .command('remove', 'cli.cmd.operation-remove')
+    .option('--id <id>', 'cli.opt.id')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'operation remove <file>');
+            await withDocument(file, async (document) => {
+                print(await document.removeOperation(required(ctx, options, '--id')));
+            });
+            return 0;
+        }),
+    );
+
+cli
+    .command('validate', 'cli.cmd.validate')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'validate <file>');
+            await withDocument(file, async (document) => {
                 print(await document.validate());
             });
-        case 'toolpaths':
-            return readDocument(args.slice(1), 'toolpaths <file>', ['--out'], [], async (document, parsed) => {
+            return 0;
+        }),
+    );
+
+cli
+    .command('toolpaths', 'cli.cmd.toolpaths')
+    .option('--out <report.json>', 'cli.opt.out')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'toolpaths <file>');
+            await withDocument(file, async (document) => {
                 const report = await document.toolpaths();
-                const target = parsed.options.get('--out');
+                const target = text(options, 'out');
                 if (target !== undefined) {
                     fs.writeFileSync(target, JSON.stringify(report, null, 2));
                 }
                 print(report);
             });
-        case 'estimate':
-            return readDocument(
-                args.slice(1),
-                'estimate <file>',
-                ['--rapid-feed', '--tool-change', '--out'],
-                [],
-                async (document, parsed) => {
-                    const rapidFeed = number(parsed, '--rapid-feed');
-                    const toolChangeSeconds = number(parsed, '--tool-change');
-                    const report = await document.estimateCycleTime({
-                        ...(rapidFeed === undefined ? {} : { rapidFeed }),
-                        ...(toolChangeSeconds === undefined ? {} : { toolChangeSeconds }),
-                    });
-                    const target = parsed.options.get('--out');
-                    if (target !== undefined) {
-                        fs.writeFileSync(target, JSON.stringify(report, null, 2));
-                    }
-                    print(report);
-                },
-            );
-        case 'gcode':
-            return readDocument(args.slice(1), 'gcode <file>', ['--out'], [], async (document, parsed) => {
+            return 0;
+        }),
+    );
+
+cli
+    .command('estimate', 'cli.cmd.estimate')
+    .option('--rapid-feed <mm/min>', 'cli.opt.rapid-feed')
+    .option('--tool-change <seconds>', 'cli.opt.tool-change')
+    .option('--out <estimate.json>', 'cli.opt.out')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'estimate <file>');
+            await withDocument(file, async (document) => {
+                const rapidFeed = number(ctx, options, '--rapid-feed');
+                const toolChangeSeconds = number(ctx, options, '--tool-change');
+                const report = await document.estimateCycleTime({
+                    ...(rapidFeed === undefined ? {} : { rapidFeed }),
+                    ...(toolChangeSeconds === undefined ? {} : { toolChangeSeconds }),
+                });
+                const target = text(options, 'out');
+                if (target !== undefined) {
+                    fs.writeFileSync(target, JSON.stringify(report, null, 2));
+                }
+                print(report);
+            });
+            return 0;
+        }),
+    );
+
+cli
+    .command('gcode', 'cli.cmd.gcode')
+    .option('--out <program.nc>', 'cli.opt.out')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'gcode <file>');
+            await withDocument(file, async (document) => {
                 const program = await document.gcode();
-                const target = parsed.options.get('--out');
+                const target = text(options, 'out');
                 if (target !== undefined) {
                     fs.writeFileSync(target, program);
                 }
                 process.stdout.write(program);
             });
-        case 'export':
-            return readDocument(args.slice(1), 'export <file> --format <format> --out <path>', ['--format', '--out'], [], async (document, parsed) => {
-                const format = exportFormat(parsed.options.get('--format') ?? 'gcode');
-                print(await document.exportDocument(format, required(parsed, '--out')));
+            return 0;
+        }),
+    );
+
+cli
+    .command('export', 'cli.cmd.export')
+    .option('--format <gcode|json|csv|md>', 'cli.opt.format')
+    .option('--out <path>', 'cli.opt.out')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'export <file> --format <format> --out <path>');
+            await withDocument(file, async (document) => {
+                const format = exportFormat(ctx, text(options, 'format') ?? 'gcode');
+                print(await document.exportDocument(format, required(ctx, options, '--out')));
             });
-        case 'report':
-            return readDocument(args.slice(1), 'report <file>', [], [], async (document) => {
+            return 0;
+        }),
+    );
+
+cli
+    .command('report', 'cli.cmd.report')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'report <file>');
+            await withDocument(file, async (document) => {
                 print(await document.report());
             });
-        default:
-            throw new OpenCAMError('cli/unknown-command', `unknown command \`${command}\``);
+            return 0;
+        }),
+    );
+
+const entry = process.argv[1];
+if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+    try {
+        process.exitCode = await cli.parse(process.argv);
+    } finally {
+        await app.dispose();
     }
 }
-
-async function toolCommand(args: readonly string[]): Promise<number> {
-    const action = args[0] ?? '';
-    if (action === 'add') {
-        return editDocument(
-            args.slice(1),
-            'tool add <file>',
-            ['--id', '--name', '--number', '--diameter', '--flutes', '--spindle', '--feed', '--plunge'],
-            [],
-            async (document, parsed) => {
-                const feed = requiredNumber(parsed, '--feed');
-                const id = required(parsed, '--id');
-                print(
-                    await document.addTool({
-                        id,
-                        name: parsed.options.get('--name') ?? id,
-                        number: integer(parsed, '--number') ?? 1,
-                        diameter: requiredNumber(parsed, '--diameter'),
-                        flutes: integer(parsed, '--flutes') ?? 2,
-                        spindle: requiredNumber(parsed, '--spindle'),
-                        feed,
-                        plungeFeed: number(parsed, '--plunge') ?? feed / 3,
-                    }),
-                );
-            },
-        );
-    }
-    if (action === 'remove') {
-        return editDocument(args.slice(1), 'tool remove <file>', ['--id'], [], async (document, parsed) => {
-            print(await document.removeTool(required(parsed, '--id')));
-        });
-    }
-    throw failure('cli/missing-argument', 'missingArgument', { usage: 'tool add|remove <file> ...' });
-}
-
-async function operationCommand(args: readonly string[]): Promise<number> {
-    const action = args[0] ?? '';
-    if (action === 'add') {
-        return editDocument(
-            args.slice(1),
-            'operation add <file>',
-            [
-                '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover', '--ramp',
-                '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--dwell', '--island',
-                '--path', '--tabs', '--lead',
-            ],
-            ['--closed', '--finish'],
-            async (document, parsed) => {
-                const depth = requiredNumber(parsed, '--depth');
-                const id = required(parsed, '--id');
-                const holes = parsed.options.get('--holes');
-                const path = parsed.options.get('--path');
-                const strategy = parsed.options.get('--strategy');
-                const shape = parsed.options.get('--shape');
-                const tabs = parsed.options.get('--tabs');
-                const lead = parsed.options.get('--lead');
-                print(
-                    await document.addOperation({
-                        id,
-                        name: parsed.options.get('--name') ?? id,
-                        kind: operationKind(required(parsed, '--kind')),
-                        tool: required(parsed, '--tool'),
-                        depth,
-                        stepdown: number(parsed, '--stepdown') ?? depth,
-                        stepover: number(parsed, '--stepover'),
-                        ramp: number(parsed, '--ramp'),
-                        strategy: strategy === undefined ? undefined : pocketStrategy(strategy),
-                        shape: shape === undefined ? undefined : (shape as PocketShape),
-                        x: number(parsed, '--x') ?? 0,
-                        y: number(parsed, '--y') ?? 0,
-                        width: number(parsed, '--width') ?? 0,
-                        height: number(parsed, '--height') ?? 0,
-                        holes: holes === undefined ? [] : parseHoles(holes),
-                        path: path === undefined ? [] : parsePath(path),
-                        closed: parsed.flags.has('--closed'),
-                        islands: parseIslands(parsed.repeated.get('--island') ?? []),
-                        peck: number(parsed, '--peck'),
-                        dwell: number(parsed, '--dwell'),
-                        tabs: tabs === undefined ? undefined : parseTabs(tabs),
-                        lead: lead === undefined ? undefined : parseLead(lead),
-                        finish: parsed.flags.has('--finish') ? true : undefined,
-                    }),
-                );
-            },
-        );
-    }
-    if (action === 'remove') {
-        return editDocument(args.slice(1), 'operation remove <file>', ['--id'], [], async (document, parsed) => {
-            print(await document.removeOperation(required(parsed, '--id')));
-        });
-    }
-    throw failure('cli/missing-argument', 'missingArgument', { usage: 'operation add|remove <file> ...' });
-}
-
-async function editDocument(
-    args: readonly string[],
-    usage: string,
-    valueOptions: readonly string[],
-    flagOptions: readonly string[],
-    work: (document: CamDocument, parsed: Parsed) => Promise<void>,
-): Promise<number> {
-    const parsed = parse(args, valueOptions, flagOptions);
-    const file = positional(parsed, 0, usage);
-    return withSession(async (session) => {
-        const document = await session.open(file);
-        await work(document, parsed);
-        return 0;
-    });
-}
-
-async function readDocument(
-    args: readonly string[],
-    usage: string,
-    valueOptions: readonly string[],
-    flagOptions: readonly string[],
-    work: (document: CamDocument, parsed: Parsed) => Promise<void>,
-): Promise<number> {
-    return editDocument(args, usage, valueOptions, flagOptions, work);
-}
-
-const args = process.argv.slice(2);
-dispatch(args)
-    .then((code) => {
-        process.exitCode = code;
-    })
-    .catch((error: unknown) => {
-        if (error instanceof OpenCAMError) {
-            process.stderr.write(`${error.code}: ${error.message}\n`);
-            process.exitCode = error.code.startsWith('capability/') ? 2 : 1;
-        } else {
-            process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-            process.exitCode = 1;
-        }
-    });

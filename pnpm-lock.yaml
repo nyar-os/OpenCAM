@@ -22,6 +22,10 @@ importers:
         version: 5.9.3
 
   projects/packages/open-cam:
+    dependencies:
+      '@wae/commander':
+        specifier: 0.0.7
+        version: 0.0.7
     devDependencies:
       '@types/node':
         specifier: ^22.20.4
@@ -171,6 +175,10 @@ packages:
 
   '@wae/commander@0.0.6':
     resolution: {integrity: sha512-jRTwhX6iHPPQuchs4+BIfbrEjulGNV8w837jhwr+uxPTXOe+iWXw77OXz285jyEaLKZEGEq8FArJBW/YJWzFGA==}
+    engines: {node: '>=20'}
+
+  '@wae/commander@0.0.7':
+    resolution: {integrity: sha512-9YvQuL64SDEJb7MzG6h0ZysEHHRhRkV+aMIIUuCyoKRkhw9prLAfYrWhXKwZfFVCPMWyAF1KS9ulozNCzq1zow==}
     engines: {node: '>=20'}
 
   '@wae/wae-darwin-arm64@0.0.6':
@@ -376,6 +384,8 @@ snapshots:
       - canvas
 
   '@wae/commander@0.0.6': {}
+
+  '@wae/commander@0.0.7': {}
 
   '@wae/wae-darwin-arm64@0.0.6':
     optional: true

@@ -40,6 +40,9 @@
         "url": "git+https://github.com/nyar-os/OpenCAM.git",
         "directory": "projects/packages/open-cam"
     },
+    "dependencies": {
+        "@wae/commander": "0.0.7"
+    },
     "devDependencies": {
         "@types/node": "^22.20.4",
         "typescript": "^5.9.2"
