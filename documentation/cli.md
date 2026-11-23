@@ -242,6 +242,48 @@ and cycle time. `--finish` cannot be combined with `--island`
 (`operation/invalid`) and does not change the clearing moves when omitted.
 `--finish` on any kind other than `pocket` reports `operation/invalid`.
 
+## operation list
+
+```shell
+open-cam operation list <file>
+```
+
+Prints the `open-cam-operation-list` report: `operationCount`, `usedTools` and
+one entry per operation in document order. Each entry carries `id`, `kind`,
+`tool`, `name`, `depth`, `stepdown`, `stepover`, `strategy` (`raster` or
+`spiral` for a pocket and `null` for every other kind), `shape` (`rect` or
+`circle` for a contour or pocket and `null` otherwise), `holes` (including a
+generated pattern, `0` for other kinds), `islandCount`, `finish` (`false` when
+the kind has none) and `estimatedSeconds`. The time is the kinematic motion
+time of that operation alone: the cycle-time model at the default rapid feed
+without tool-change overhead. The command only reads the document and writes
+nothing.
+
+## operation update
+
+```shell
+open-cam operation update <file> --id <id> [--tool <id>] [--depth <mm>]
+                          [--stepdown <mm>] [--stepover <mm>] [--name <name>]
+                          [--peck <mm>] [--dwell <seconds>]
+```
+
+Partial edit: only the supplied fields change and at least one field is
+required, otherwise the command reports `operation/invalid`. `--depth`,
+`--stepdown`, `--stepover`, `--peck` and `--dwell` must be finite and greater
+than zero. `--peck` and `--dwell` are valid only on `drill` and may not be
+combined, mirroring the add-time rule. `--tool` must name a declared tool, so an
+unknown id reports `operation/unknown-tool`. An unknown `--id` reports
+`operation/unknown-id`.
+
+The whole candidate document is validated with the same rules as
+`operation add` and `save` before it is written: on any failure nothing is
+written and the revision stays the same. On success the document is saved
+atomically, the revision rises by one and the usual edit summary is printed.
+This command changes only `--tool`, `--name`, `--depth`, `--stepdown`,
+`--stepover`, `--peck` and `--dwell`; it cannot change the kind, geometry
+coordinates, holes, islands, tabs, `--lead`, `--ramp` or `--arcs`, clear an
+optional field, reorder operations or merge two operations.
+
 ## operation remove
 
 ```shell
@@ -438,6 +480,9 @@ open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \
 open-cam operation add bracket.ocam --id edge --kind contour --tool t6 \
     --depth 2 --stepdown 2 --x 20 --y 20 --width 60 --height 40 \
     --lead 5,cw
+open-cam operation list bracket.ocam
+open-cam operation update bracket.ocam --id floor --depth 4 --stepdown 2
+open-cam operation update bracket.ocam --id bore --peck 2
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam sequence bracket.ocam --apply

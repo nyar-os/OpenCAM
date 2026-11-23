@@ -28,6 +28,10 @@ open-cam operation add <file> --id <id> --kind face|contour|pocket|drill
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>]
                      [--island <x,y,w,h>]...
+open-cam operation list <file>
+open-cam operation update <file> --id <id> [--tool <id>] [--depth <mm>]
+                     [--stepdown <mm>] [--stepover <mm>] [--name <name>]
+                     [--peck <mm>] [--dwell <seconds>]
 open-cam operation remove <file> --id <id>
 open-cam validate <file>
 open-cam toolpaths <file> [--out report.json]

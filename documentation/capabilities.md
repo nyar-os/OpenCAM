@@ -36,6 +36,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | cycle-time estimate report (cut/plunge/retract/traverse/tool-change split) | ✅ supported |
 | tool-grouped operation sequencing (fewest tool changes) | ✅ supported |
 | material-based spindle and feed recommendation (`feeds`) | ✅ supported |
+| operation list report (fields and per-operation motion time) | ✅ supported |
+| partial operation update (tool, name, depth, stepdown, stepover, peck, dwell) | ✅ supported |
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
@@ -247,6 +249,33 @@ The machine-readable version is printed by `open-cam capabilities` and by
     two and `"aluminum"` is accepted as an alias of `"aluminium"`, reported
     under the canonical name. The recommendation reads no document and writes
     nothing; it is advisory, not a machine or material simulation.
+20. **Operation listing.** The report walks the operations in document order and
+    reports one row each: `id`, `kind`, `tool`, `name`, `depth`, `stepdown`,
+    `stepover`, the effective `strategy` (`raster` or `spiral` for a pocket,
+    `null` for every other kind), the effective `shape` (`rect` or `circle` for
+    a contour or pocket, `null` otherwise), the number of drilled `holes`
+    (including a generated pattern, `0` for other kinds), `islandCount`, the
+    pocket `finish` flag (`false` otherwise) and `estimatedSeconds`.
+    `estimatedSeconds` is the kinematic motion time of that operation alone: it
+    reuses the cycle-time engine at the default rapid feed with no tool-change
+    overhead, so no second timing model exists. `usedTools` counts the distinct
+    tools the operations reference. The report is read-only and deterministic;
+    an unmachineable document reports its first validation error instead of a
+    partial list.
+21. **Partial operation updates.** An update changes only the supplied fields of
+    one operation: `tool`, `name`, `depth`, `stepdown`, `stepover`, `peck` and
+    `dwell`. At least one field is required, otherwise the request reports
+    `operation/invalid`; an unknown operation reports `operation/unknown-id`.
+    `depth`, `stepdown`, `stepover`, `peck` and `dwell` must be finite and
+    greater than zero, and `peck` and `dwell` are accepted only by a `drill` and
+    cannot be combined, which mirrors the add-time rule. A `tool` that is not
+    declared reports `operation/unknown-tool`. The whole candidate document is
+    validated with the same rules as `add` and `save`, including the stock,
+    tool-diameter and geometry checks, before it is written. A rejected update
+    writes nothing and keeps the revision; a successful update is saved
+    atomically, bumps the revision once and returns the usual summary. This
+    version does not change the kind, geometry coordinates, holes, islands,
+    tabs, lead, ramp or arcs.
 
 ## Tool library
 
@@ -333,6 +362,8 @@ outside the stock) do not make `ok` false.
 | `tests/dwell.rs` | `G82`/`P` and `G80` per hole, no `G4`, no-dwell byte identity, peck and non-drill rejection, invalid values, unchanged toolpath moves, determinism and round trip |
 | `tests/patterns.rs` | grid row-major expansion and `G81` coordinates, circular angles and centre distance, pattern/hole exclusivity, non-drill rejection, invalid grid and circular geometry, unknown kind, generated hole outside the stock, `G83` per generated hole, explicit-hole byte identity, omitted fields, determinism and round trip |
 | `tests/feeds.rs` | documented formula per material and diameter band, spelling alias, default flute count, spindle and feed clamps, unknown material names, invalid diameter and flute count, session parity, serde defaults and determinism |
+| `tests/operation_list.rs` | document order, every row field, effective strategy and shape, pattern and explicit hole counts, island and finish flags, per-operation motion time parity with the cycle-time engine, read-only revision and file, determinism |
+| `tests/operation_update.rs` | partial updates per field, untouched fields and operations, tool-usage change, invalid values, peck/dwell kind and combination rules, unknown id and tool, whole-document validation, revision bump only on success, unchanged file after failure, round trip, determinism and the unsaved candidate |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/post.rs` | default byte identity, empty request defaults, `O` program number placement, line numbering and increment, `M8`/`M7`/`M9` pairing, unchanged moves, `post/invalid` codes and determinism |
 | `tests/sequence.rs` | stable tool grouping, before/after tool-change counts, per-tool order, single-tool and empty documents, source immutability, applied revision and idempotent apply, determinism |
@@ -400,6 +431,12 @@ outside the stock) do not make `ok` false.
   shorten travel, merge operations, reorder for fixturing or feature
   dependencies, and it never changes an operation field other than the position
   in the list.
+- Operation listing is read-only and a partial update is deliberately narrow: it
+  changes only `tool`, `name`, `depth`, `stepdown`, `stepover`, `peck` and
+  `dwell`, never the kind, geometry coordinates, holes, islands, tabs, lead,
+  ramp or arcs. An update cannot clear an optional field, reorder operations or
+  merge two operations. `estimatedSeconds` is kinematic motion time of one
+  operation without tool-change overhead, not a machine simulation.
 - Drilling takes an explicit hole list or one generated pattern: a rectangular
   grid (`columns × rows`) or a full circle of evenly spaced holes. A pattern
   replaces the list rather than extending it, and there are no staggered,
