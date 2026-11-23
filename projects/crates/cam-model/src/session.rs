@@ -24,6 +24,7 @@ use crate::{
     operation_delete,
     operation_duplicate::{self, OperationDuplicate},
     operation_list::{self, OperationListReport},
+    operation_reorder::{self, OperationReorder, OperationReorderReport},
     operation_update::{self, OperationUpdate},
     sequence::{self, SequenceReport},
     toolpath::{self, ToolpathReport},
@@ -328,6 +329,27 @@ impl OpenCam {
         let document = self.document()?.clone();
         let candidate = operation_duplicate::duplicate(&document, request)?;
         self.persist(candidate)
+    }
+
+    /// Moves one operation to a final 0-based position and saves the document.
+    ///
+    /// `to` is the position the operation occupies after the move. An unknown id
+    /// reports `operation/unknown-id` and an index at or beyond the operation
+    /// count reports `operation/invalid`. Moving an operation to its current
+    /// index is a no-op: the file is not rewritten, the revision stays the same
+    /// and the report carries `changed: false`. A real move keeps every field of
+    /// every operation, validates the whole candidate document with the same
+    /// rules as `add`, `update` and `delete`, and saves it atomically; on any
+    /// failure nothing is written and the revision stays the same.
+    pub fn reorder_operation(&mut self, request: &OperationReorder) -> Result<OperationReorderReport, CamError> {
+        let document = self.document()?.clone();
+        let (candidate, mut report) = operation_reorder::reorder(&document, request)?;
+        if !report.changed {
+            return Ok(report);
+        }
+        let summary = self.persist(candidate)?;
+        report.revision = summary.revision;
+        Ok(report)
     }
 
     /// Lists every operation of the open document without changing it.

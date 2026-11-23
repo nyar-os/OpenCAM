@@ -42,6 +42,7 @@ mod model;
 mod operation_delete;
 mod operation_duplicate;
 mod operation_list;
+mod operation_reorder;
 mod operation_update;
 mod sequence;
 mod session;
@@ -66,6 +67,7 @@ pub use crate::{
     operation_delete::delete as operation_delete,
     operation_duplicate::{OperationDuplicate, duplicate as operation_duplicate},
     operation_list::{OperationListEntry, OperationListReport, list as operation_list},
+    operation_reorder::{OperationReorder, OperationReorderReport, reorder as operation_reorder},
     operation_update::{OperationUpdate, update as operation_update},
     sequence::{SequenceEntry, SequenceGroup, SequenceReport, plan as sequence_plan, reorder as sequence_reorder},
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
@@ -103,6 +105,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "operationUpdate": "supported",
     "operationDelete": "supported",
     "operationDuplicate": "supported",
+    "operationReorder": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"
