@@ -284,11 +284,44 @@ This command changes only `--tool`, `--name`, `--depth`, `--stepdown`,
 coordinates, holes, islands, tabs, `--lead`, `--ramp` or `--arcs`, clear an
 optional field, reorder operations or merge two operations.
 
-## operation remove
+## operation delete
 
 ```shell
-open-cam operation remove <file> --id <id>
+open-cam operation delete <file> --id <id>
 ```
+
+Removes one operation and saves the document atomically. `operation remove` is
+accepted as an alias. An unknown `--id` reports `operation/unknown-id`, and the
+remaining operations keep their document order. Removing the last operation is
+allowed and leaves a document with zero operations, which is still valid
+(`operation/none` is only a warning). An operation is self-contained: its
+geometry, holes, islands, tabs, lead, ramp and arcs live inside it, and the tool
+table, sequence plan and operation list are derived from the operation array on
+demand, so a delete never leaves a dangling reference and no `operation/in-use`
+guard is required. The whole candidate document is validated with the same rules
+as `operation add`, `operation update` and `save` before it is written: on any
+failure nothing is written and the revision stays the same. On success the
+document is saved atomically, the revision rises by one and the usual edit
+summary is printed.
+
+## operation duplicate
+
+```shell
+open-cam operation duplicate <file> --id <id> [--new-id <id>]
+```
+
+Copies one operation and inserts the copy immediately after its source. The copy
+keeps every field of the source — kind, tool, geometry, holes, islands, tabs,
+lead, ramp, arcs and name — and only the identifier changes; the name is never
+suffixed automatically. An unknown `--id` reports `operation/unknown-id`.
+`--new-id` must be non-empty and not already declared, otherwise the command
+reports `operation/invalid` (empty) or `operation/duplicate-id` (already used).
+Without `--new-id` the copy takes the smallest free `op-<n>` identifier,
+starting at `op-1`. The whole candidate document is validated with the same
+rules as `operation add`, `operation update` and `save` before it is written: on
+any failure nothing is written and the revision stays the same, while a
+successful duplicate is saved atomically, bumps the revision once and prints the
+usual edit summary.
 
 ## validate
 
@@ -483,6 +516,8 @@ open-cam operation add bracket.ocam --id edge --kind contour --tool t6 \
 open-cam operation list bracket.ocam
 open-cam operation update bracket.ocam --id floor --depth 4 --stepdown 2
 open-cam operation update bracket.ocam --id bore --peck 2
+open-cam operation duplicate bracket.ocam --id floor --new-id floor-finish
+open-cam operation delete bracket.ocam --id edge
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam sequence bracket.ocam --apply

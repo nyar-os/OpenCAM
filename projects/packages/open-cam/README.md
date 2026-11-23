@@ -32,7 +32,8 @@ open-cam operation list <file>
 open-cam operation update <file> --id <id> [--tool <id>] [--depth <mm>]
                      [--stepdown <mm>] [--stepover <mm>] [--name <name>]
                      [--peck <mm>] [--dwell <seconds>]
-open-cam operation remove <file> --id <id>
+open-cam operation duplicate <file> --id <id> [--new-id <id>]
+open-cam operation delete <file> --id <id>
 open-cam validate <file>
 open-cam toolpaths <file> [--out report.json]
 open-cam gcode <file> [--out program.nc]
