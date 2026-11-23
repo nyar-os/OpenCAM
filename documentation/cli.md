@@ -287,6 +287,8 @@ report's `estimatedSeconds` plus `toolChanges × 3`.
 
 ```shell
 open-cam gcode <file> [--out program.nc]
+                [--program-number <n>] [--line-numbers] [--line-increment <n>]
+                [--coolant <off|flood|mist>]
 ```
 
 Prints the G-code program and optionally writes it. The program is
@@ -294,6 +296,41 @@ deterministic; repeated runs are byte-identical. Only contour lead arcs and the
 rings of an `--arcs arc` contour or pocket are interpolated: they render as
 `G2`/`G3` with absolute end coordinates and `I`/`J` centre offsets; every other
 move stays `G0` or `G1`.
+
+The post options change only the program text, never a move, feed or cycle:
+
+| Option | Effect |
+|--------|--------|
+| `--program-number <n>` | emits `O<n>` immediately after the leading `%` |
+| `--line-numbers` | prefixes every line between the two `%` lines with `N10`, `N20`, … |
+| `--line-increment <n>` | distance between two line numbers, at least `1` (default `10`) |
+| `--coolant flood` | emits `M8` after the spindle start of each operation and `M9` before `M5` |
+| `--coolant mist` | emits `M7` after the spindle start of each operation and `M9` before `M5` |
+
+`--coolant off` and every omitted option render the plain program byte for byte.
+Units `G21`, absolute mode `G90`, the `G17` plane and `G94` feed mode stay
+fixed. A program number of zero, a line increment of zero or an unknown coolant
+reports `post/invalid` with exit code `1`. `export --format gcode` always uses
+the defaults.
+
+## sequence
+
+```shell
+open-cam sequence <file> [--apply]
+```
+
+Prints the tool-grouped execution plan as `open-cam-sequence`. The plan keeps
+every operation of one tool together: tools keep the order of their first
+appearance and the operations inside a tool keep their document order. The
+report carries `operationCount`, `beforeToolChanges`, `afterToolChanges`,
+`unchanged`, `applied`, `revision`, one `groups` entry per tool and every
+`operations` entry in its proposed position.
+
+`--apply` rewrites the document only when the order changes. An already grouped
+document is not written and reports `applied: false` with its current revision;
+otherwise the reordered document is validated and saved atomically and the
+report carries the new revision. Sequencing changes no operation field, move or
+feed.
 
 ## export
 
@@ -362,5 +399,7 @@ open-cam operation add bracket.ocam --id edge --kind contour --tool t6 \
     --lead 5,cw
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
+open-cam sequence bracket.ocam --apply
 open-cam gcode bracket.ocam --out bracket.nc
+open-cam gcode bracket.ocam --program-number 1001 --line-numbers --coolant flood
 ```

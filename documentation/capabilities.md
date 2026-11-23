@@ -33,6 +33,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | raster spacing (`stepover`) | ✅ supported |
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
 | cycle-time estimate report (cut/plunge/retract/traverse/tool-change split) | ✅ supported |
+| tool-grouped operation sequencing (fewest tool changes) | ✅ supported |
+| G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
@@ -197,6 +199,27 @@ The machine-readable version is printed by `open-cam capabilities` and by
     contributes its true length `radius × sweep` to `cutLength` and the cycle
     time. `arcs` is valid only for a `circle` contour or pocket, and an unknown
     value reports `operation/invalid` like any other kind or shape that uses it.
+16. **Operation sequencing.** The plan groups the operations by tool: each
+    distinct tool keeps the position of its first appearance and the operations
+    inside a tool keep their document order, so the proposal is stable and
+    deterministic. The report counts adjacent pairs that use different tools
+    before and after the change, so alternating tools collapse to one change per
+    distinct tool. `unchanged` is true when the proposal equals the document
+    order, which happens when each tool is already contiguous. Applying the plan
+    rewrites the document only when the order changes: an already grouped
+    document keeps its revision, otherwise the reordered document is validated
+    and saved atomically and the report carries the new revision. Sequencing
+    changes no operation field, move or feed.
+17. **G-code post options.** `programNumber`, `lineNumbers`, `lineIncrement` and
+    `coolant` change only the text around the moves. `programNumber` emits
+    `O<n>` immediately after the leading `%`; `lineNumbers` prefixes every line
+    strictly between the two `%` markers with a sequential `N` word starting at
+    `lineIncrement` and rising by it; `coolant` emits `M8` (`flood`) or `M7`
+    (`mist`) after the spindle start of every operation and closes it with `M9`
+    before `M5`. Units `G21` and absolute mode `G90` stay fixed. Every default
+    emits exactly the program of the plain writer, and no option changes a
+    coordinate, a feed, an arc or a drilling cycle. A program number of zero, a
+    line increment of zero or an unknown coolant reports `post/invalid`.
 
 ## Tool library
 
@@ -225,6 +248,14 @@ Contour lead arcs are the only interpolation the writer emits as `G2`/`G3`: the
 absolute end coordinates plus `I`/`J` centre offsets from the arc start in the
 XY plane, at the cutting feed. Every other move stays `G0` or `G1`.
 
+`PostOptions` decorates that program without changing a move: a program number
+becomes `O<n>` right after the leading `%`, line numbers prefix every interior
+line with `N<n>` starting at `lineIncrement`, and coolant emits `M8` or `M7`
+after `S… M3` and `M9` before `M5` of every operation. The defaults render the
+plain program byte for byte. Units `G21`, absolute mode `G90`, the `G17` plane
+and `G94` feed mode stay fixed, so the writer still never emits `G20`, `G91` or
+a vendor dialect.
+
 ## Validation
 
 | Code | Meaning |
@@ -244,6 +275,7 @@ XY plane, at the cutting feed. Every other move stays `G0` or `G1`.
 | `operation/strategy-circle` | a `circle` pocket declares an explicit `strategy`, which only `rect` pockets accept |
 | `operation/circle-size` | a `circle` contour or pocket has `height` different from `width` (the diameter) |
 | `path/outside-stock` | a profile, pocket, hole or engrave path point leaves the stock |
+| `post/invalid` | a G-code post option is invalid: a program number of zero, a line increment of zero or an unknown coolant |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
 outside the stock) do not make `ok` false.
@@ -267,9 +299,11 @@ outside the stock) do not make `ok` false.
 | `tests/tools.rs` | tool-table usage, library export and import round trip, rejection of duplicate ids, bad format, version, units, malformed JSON, invalid tools and a missing file without touching the document |
 | `tests/dwell.rs` | `G82`/`P` and `G80` per hole, no `G4`, no-dwell byte identity, peck and non-drill rejection, invalid values, unchanged toolpath moves, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
+| `tests/post.rs` | default byte identity, empty request defaults, `O` program number placement, line numbering and increment, `M8`/`M7`/`M9` pairing, unchanged moves, `post/invalid` codes and determinism |
+| `tests/sequence.rs` | stable tool grouping, before/after tool-change counts, per-tool order, single-tool and empty documents, source immutability, applied revision and idempotent apply, determinism |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
-| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output and the tool library (skipped without the addon) |
+| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options and operation sequencing (skipped without the addon) |
 
 ## Limitations
 
@@ -321,4 +355,14 @@ outside the stock) do not make `ok` false.
   or per-operation overrides. Import is an id-based merge with no conflict
   resolution beyond `tool/duplicate-id`; a tool already declared in the document
   must be removed first.
+- G-code post options cover a program number, line numbering and coolant only.
+  There are no configurable header/footer templates, no inch output (`G20`), no
+  incremental mode (`G91`), no tool-length compensation, subprograms, probing or
+  vendor dialects. Every option leaves the generated moves, feeds and cycles
+  untouched.
+- Operation sequencing groups by tool alone: tools keep their first-appearance
+  order and the operations inside a tool keep their document order. It does not
+  shorten travel, merge operations, reorder for fixturing or feature
+  dependencies, and it never changes an operation field other than the position
+  in the list.
 - Cycle time is a kinematic estimate, not a machine simulation.
