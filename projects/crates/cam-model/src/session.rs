@@ -21,6 +21,7 @@ use crate::{
     gcode::{self, PostOptions},
     library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
+    operation_list::{self, OperationListReport},
     sequence::{self, SequenceReport},
     toolpath::{self, ToolpathReport},
     validate::{self, ValidationReport},
@@ -302,6 +303,14 @@ impl OpenCam {
         }
         document.operations.retain(|operation| operation.id != id);
         self.persist(document)
+    }
+
+    /// Lists every operation of the open document without changing it.
+    ///
+    /// The report is read-only and deterministic; it carries the operation
+    /// fields in document order and the kinematic motion time of each operation.
+    pub fn operation_list(&self) -> Result<OperationListReport, CamError> {
+        operation_list::list(self.document()?)
     }
 
     /// Validates the open document.
