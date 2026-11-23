@@ -28,6 +28,7 @@ export interface NativeBinding {
     operation_remove(path: string, requestJson: string): string;
     operation_delete(path: string, requestJson: string): string;
     operation_duplicate(path: string, requestJson: string): string;
+    operation_reorder(path: string, requestJson: string): string;
     operation_list(path: string): string;
     operation_update(path: string, requestJson: string): string;
     validate(path: string): string;

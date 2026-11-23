@@ -18,6 +18,8 @@ import type {
     FeedsRequest,
     OperationDuplicateRequest,
     OperationListReport,
+    OperationReorderReport,
+    OperationReorderRequest,
     OperationRequest,
     OperationUpdateRequest,
     PostOptions,
@@ -150,6 +152,13 @@ export function deleteOperation(path: string, id: string): DocumentSummary {
 export function duplicateOperation(path: string, request: OperationDuplicateRequest): DocumentSummary {
     return decode<DocumentSummary>(() =>
         binding('operation.duplicate').operation_duplicate(path, JSON.stringify(request)),
+    );
+}
+
+/** Moves an operation to a final 0-based position and returns the reorder report. */
+export function reorderOperation(path: string, request: OperationReorderRequest): OperationReorderReport {
+    return decode<OperationReorderReport>(() =>
+        binding('operation.reorder').operation_reorder(path, JSON.stringify(request)),
     );
 }
 

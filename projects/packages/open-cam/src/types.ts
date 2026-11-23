@@ -283,6 +283,36 @@ export interface OperationDuplicateRequest {
     readonly newId?: string;
 }
 
+/**
+ * Request of `reorderOperation()`: move one operation to a final 0-based index.
+ *
+ * `to` is the position the operation occupies after the move, so `0` puts it
+ * first and `operationCount - 1` puts it last. Moving an operation to its
+ * current index is a no-op that does not rewrite the file.
+ */
+export interface OperationReorderRequest {
+    readonly id: string;
+    /** Final 0-based position in the operation array, from `0` to `operationCount - 1`. */
+    readonly to: number;
+}
+
+/** Result of `reorderOperation()`. */
+export interface OperationReorderReport {
+    readonly format: string;
+    readonly version: number;
+    readonly units: string;
+    readonly operationCount: number;
+    readonly id: string;
+    /** 0-based position before the move. */
+    readonly from: number;
+    /** Requested final 0-based position. */
+    readonly to: number;
+    /** `false` when the operation already sat at `to`, so the file was not rewritten. */
+    readonly changed: boolean;
+    /** Document revision the report describes; the saved revision after a real move. */
+    readonly revision: number;
+}
+
 /** Summary of one document as written to disk. */
 export interface DocumentSummary {
     readonly id: string;

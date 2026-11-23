@@ -17,6 +17,8 @@ import type {
     ExportReport,
     OperationDuplicateRequest,
     OperationListReport,
+    OperationReorderReport,
+    OperationReorderRequest,
     OperationRequest,
     OperationUpdateRequest,
     PostOptions,
@@ -143,6 +145,14 @@ export class CamDocument {
         this.assertOpen();
         this.state = service.duplicateOperation(this.state.path, request);
         return this.state;
+    }
+
+    /** Moves an operation to a final 0-based position; a no-op keeps the revision. */
+    async reorderOperation(request: OperationReorderRequest): Promise<OperationReorderReport> {
+        this.assertOpen();
+        const report = service.reorderOperation(this.state.path, request);
+        this.state = service.open(this.state.path);
+        return report;
     }
 
     /** Lists every operation of the document without changing it. */

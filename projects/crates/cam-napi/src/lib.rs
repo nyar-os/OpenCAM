@@ -15,7 +15,7 @@ use std::path::Path;
 
 use cam_model::{
     CamError, EstimateRequest, ExportFormat, FeedsRequest, Hole, HolePattern, Island, LeadSettings, OpenCam, Operation,
-    OperationDuplicate, OperationKind, OperationUpdate, PathPoint, PostOptions, Stock, TabSettings, Tool,
+    OperationDuplicate, OperationKind, OperationReorder, OperationUpdate, PathPoint, PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -372,6 +372,23 @@ fn operation_duplicate(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &summary)
 }
 
+/// Moves an operation to a final 0-based position and saves the document.
+#[function]
+fn operation_reorder(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let request = object(&ctx, 1)?;
+    let to = request
+        .get("to")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| argument_error("`to` must be a non-negative integer"))?;
+    let reorder = OperationReorder { id: text_field(&request, "id")?, to };
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.reorder_operation(&reorder).map_err(fail)?;
+    respond(&ctx, &report)
+}
+
 /// Lists every operation of a document without changing it.
 #[function]
 fn operation_list(ctx: CallContext) -> Result<JsValue> {
@@ -527,6 +544,7 @@ register_module![
     operation_remove,
     operation_delete,
     operation_duplicate,
+    operation_reorder,
     operation_list,
     operation_update,
     validate,
