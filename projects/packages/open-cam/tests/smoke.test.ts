@@ -122,6 +122,124 @@ test('a pocket clears around islands and rejects a rejected island without savin
     }
 });
 
+test('a circular contour with arcs renders G3 half circles', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-arcs-'));
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        assert.equal((await session.capabilities()).operations.circleArcs, 'supported');
+
+        const folder = fs.mkdtempSync(path.join(directory, 'job-'));
+        const document = await session.create(path.join(folder, 'part.ocam'));
+        await document.setStock({ width: 120, depth: 100, height: 10 });
+        await document.addTool({ id: 't6', diameter: 6, spindle: 12000, feed: 1200 });
+        await document.addOperation({
+            id: 'boss',
+            kind: 'contour',
+            tool: 't6',
+            depth: 2,
+            stepdown: 2,
+            x: 20,
+            y: 20,
+            width: 40,
+            height: 40,
+            shape: 'circle',
+            arcs: 'arc',
+        });
+
+        const report = await document.toolpaths();
+        const path0 = report.operations[0] ?? assert.fail('missing operation');
+        const arcs = path0.segments.filter((segment) => segment.kind === 'arc');
+        assert.equal(arcs.length, 2);
+        assert.equal(arcs[0]?.arc?.clockwise, false);
+
+        const program = await document.gcode();
+        assert.ok(program.includes('G3 X17 Y40 Z8 I-23 J0 F1200'));
+        assert.ok(program.includes('G3 X63 Y40 Z8 I23 J0 F1200'));
+
+        await assert.rejects(
+            document.addOperation({ id: 'face', kind: 'face', tool: 't6', depth: 1, stepdown: 1, arcs: 'arc' }),
+            (error: unknown) => {
+                assert.ok(isOpenCAMError(error));
+                assert.equal(error.code, 'operation/invalid');
+                return true;
+            },
+        );
+        assert.equal((await document.validate()).ok, true);
+    } finally {
+        await session.dispose();
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test('the tool table exports and imports a portable library', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-tools-'));
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        assert.equal((await session.capabilities()).io.toolLibrary, 'supported');
+
+        const folder = fs.mkdtempSync(path.join(directory, 'shop-'));
+        const document = await session.create(path.join(folder, 'part.ocam'));
+        await document.setStock({ width: 120, depth: 100, height: 10 });
+        await document.addTool({ id: 't6', diameter: 6, spindle: 12000, feed: 1200 });
+        await document.addTool({ id: 't3', diameter: 3, spindle: 18000, feed: 800 });
+        await document.addOperation({ id: 'face', kind: 'face', tool: 't6', depth: 1, stepdown: 1 });
+
+        const table = await document.listTools();
+        assert.equal(table.toolCount, 2);
+        assert.equal(table.unusedCount, 1);
+        assert.deepEqual(table.tools[0]?.usedBy, ['face']);
+        assert.equal(table.tools[1]?.used, false);
+
+        const library = path.join(folder, 'shop-tools.json');
+        const exported = await document.exportTools(library);
+        assert.equal(exported.format, 'tools');
+        assert.equal(exported.bytes > 0, true);
+        assert.equal(fs.existsSync(library), true);
+
+        const target = await session.create(path.join(folder, 'second.ocam'));
+        await target.setStock({ width: 120, depth: 100, height: 10 });
+        const imported = await target.importTools(library);
+        assert.deepEqual(imported.imported, ['t6', 't3']);
+        assert.equal(imported.toolCount, 2);
+        assert.equal(target.tools, 2);
+
+        await assert.rejects(target.importTools(library), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'tool/duplicate-id');
+            return true;
+        });
+        await assert.rejects(target.importTools(path.join(folder, 'missing.json')), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'io/read');
+            return true;
+        });
+        assert.equal((await target.validate()).ok, true);
+    } finally {
+        await session.dispose();
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
 test('a contour with lead arcs reports arc moves and renders G2', async (t: TestContext) => {
     const session = new OpenCAM();
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-lead-'));

@@ -9,6 +9,9 @@
             "tool": "manage the tool table",
             "tool-add": "add a tool",
             "tool-remove": "remove an unused tool",
+            "tool-list": "list every tool with the operations that use it",
+            "tool-export": "write the tool table as a portable library file",
+            "tool-import": "merge a portable tool library into the document",
             "operation": "manage machining operations",
             "operation-add": "add a machining operation",
             "operation-remove": "remove an operation",
@@ -38,6 +41,7 @@
             "ramp": "ramp distance in millimetres",
             "strategy": "pocket strategy: raster or spiral",
             "shape": "pocket or contour shape: rect or circle (circle uses --width as the diameter and needs --height equal to --width)",
+            "arcs": "circular ring interpolation: linear (72 chords) or arc (counter-clockwise G3 half arcs)",
             "x": "x position in millimetres",
             "y": "y position in millimetres",
             "holes": "drill hole pairs as `x,y;x,y`",
@@ -52,12 +56,14 @@
             "rapid-feed": "rapid traverse speed in mm/min",
             "tool-change": "tool change time in seconds",
             "out": "write the result to this path",
+            "from": "tool library file to import",
             "format": "export format: gcode, json, csv or md"
         },
         "error": {
             "missingArgument": "missing argument; usage: open-cam {usage}",
             "missingOption": "option `{option}` is required",
             "invalidNumber": "option `{option}` is not a number: `{value}`",
+            "unknownArcMode": "unknown arc mode `{value}`; only linear or arc is supported",
             "unknownFormat": "unknown export format `{format}`; only gcode, json, csv or md is supported"
         }
     }

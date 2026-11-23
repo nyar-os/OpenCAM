@@ -19,6 +19,7 @@ import type { CamDocument } from './document.js';
 import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './errors.js';
 import { OpenCAM } from './open-cam.js';
 import type {
+    ArcMode,
     ExportFormat,
     Hole,
     Island,
@@ -132,6 +133,13 @@ function pocketStrategy(value: string): PocketStrategy {
         return value;
     }
     throw new OpenCAMError('operation/invalid', `unknown pocket strategy \`${value}\`; only raster or spiral is supported`);
+}
+
+function arcMode(ctx: CommandContext, value: string): ArcMode {
+    if (value === 'linear' || value === 'arc') {
+        return value;
+    }
+    fail(ctx, 'operation/invalid', 'cli.error.unknownArcMode', { value });
 }
 
 function parseHoles(raw: string): Hole[] {
@@ -317,6 +325,41 @@ toolCommand
             return 0;
         }),
     );
+toolCommand
+    .command('list', 'cli.cmd.tool-list')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'tool list <file>');
+            await withDocument(file, async (document) => {
+                print(await document.listTools());
+            });
+            return 0;
+        }),
+    );
+toolCommand
+    .command('export', 'cli.cmd.tool-export')
+    .option('--out <library.json>', 'cli.opt.out')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'tool export <file> --out <library.json>');
+            await withDocument(file, async (document) => {
+                print(await document.exportTools(required(ctx, options, '--out')));
+            });
+            return 0;
+        }),
+    );
+toolCommand
+    .command('import', 'cli.cmd.tool-import')
+    .option('--from <library.json>', 'cli.opt.from')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'tool import <file> --from <library.json>');
+            await withDocument(file, async (document) => {
+                print(await document.importTools(required(ctx, options, '--from')));
+            });
+            return 0;
+        }),
+    );
 
 const operationCommand = cli.command('operation', 'cli.cmd.operation');
 operationCommand
@@ -331,6 +374,7 @@ operationCommand
     .option('--ramp <mm>', 'cli.opt.ramp')
     .option('--strategy <raster|spiral>', 'cli.opt.strategy')
     .option('--shape <rect|circle>', 'cli.opt.shape')
+    .option('--arcs <linear|arc>', 'cli.opt.arcs')
     .option('--x <mm>', 'cli.opt.x')
     .option('--y <mm>', 'cli.opt.y')
     .option('--width <mm>', 'cli.opt.width')
@@ -354,6 +398,7 @@ operationCommand
                 const pathValue = text(options, 'path');
                 const strategy = text(options, 'strategy');
                 const shape = text(options, 'shape');
+                const arcs = text(options, 'arcs');
                 const tabs = text(options, 'tabs');
                 const lead = text(options, 'lead');
                 print(
@@ -368,6 +413,7 @@ operationCommand
                         ramp: number(ctx, options, '--ramp'),
                         strategy: strategy === undefined ? undefined : pocketStrategy(strategy),
                         shape: shape === undefined ? undefined : (shape as PocketShape),
+                        arcs: arcs === undefined ? undefined : arcMode(ctx, arcs),
                         x: number(ctx, options, '--x') ?? 0,
                         y: number(ctx, options, '--y') ?? 0,
                         width: number(ctx, options, '--width') ?? 0,
