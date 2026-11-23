@@ -314,3 +314,132 @@ test('a contour with lead arcs reports arc moves and renders G2', async (t: Test
         fs.rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test('gcode post options add a program number, line numbers and coolant', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-post-'));
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        assert.equal((await session.capabilities()).io.gcodePost, 'supported');
+
+        const folder = fs.mkdtempSync(path.join(directory, 'job-'));
+        const document = await session.create(path.join(folder, 'part.ocam'));
+        await document.setStock({ width: 120, depth: 100, height: 10 });
+        await document.addTool({ id: 't6', diameter: 6, spindle: 12000, feed: 1200 });
+        await document.addOperation({ id: 'face', kind: 'face', tool: 't6', depth: 1, stepdown: 1, stepover: 4 });
+
+        const plain = await document.gcode();
+        assert.equal(plain.includes('M8'), false);
+
+        const program = await document.gcode({ programNumber: 1001, lineNumbers: true, coolant: 'flood' });
+        const lines = program.split('\n');
+        assert.equal(lines[0], '%');
+        assert.equal(lines[1], 'N10 O1001');
+        assert.ok(lines[2]?.startsWith('N20 '), `third line was \`${lines[2]}\``);
+        assert.ok(lines[3]?.startsWith('N30 '), `fourth line was \`${lines[3]}\``);
+        assert.equal(program.split('M8').length - 1, 1);
+        assert.equal(program.split('M9').length - 1, 1);
+        assert.ok(program.indexOf('S12000 M3') < program.indexOf('M8'));
+
+        await assert.rejects(document.gcode({ coolant: 'high-pressure' as never }), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'post/invalid');
+            return true;
+        });
+        await assert.rejects(document.gcode({ lineIncrement: 0 }), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'post/invalid');
+            return true;
+        });
+        assert.equal((await document.validate()).ok, true);
+    } finally {
+        await session.dispose();
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test('sequencing groups operations by tool and applies the plan', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-sequence-'));
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        assert.equal((await session.capabilities()).operations.sequence, 'supported');
+
+        const folder = fs.mkdtempSync(path.join(directory, 'job-'));
+        const document = await session.create(path.join(folder, 'part.ocam'));
+        await document.setStock({ width: 120, depth: 100, height: 10 });
+        await document.addTool({ id: 't6', number: 1, diameter: 6, spindle: 12000, feed: 1200 });
+        await document.addTool({ id: 't3', number: 2, diameter: 3, spindle: 18000, feed: 800 });
+        await document.addOperation({ id: 'face', kind: 'face', tool: 't6', depth: 1, stepdown: 1, stepover: 4 });
+        await document.addOperation({
+            id: 'holes',
+            kind: 'drill',
+            tool: 't3',
+            depth: 3,
+            stepdown: 3,
+            holes: [{ x: 20, y: 20 }],
+        });
+        await document.addOperation({
+            id: 'floor',
+            kind: 'pocket',
+            tool: 't6',
+            depth: 1,
+            stepdown: 1,
+            stepover: 3,
+            x: 10,
+            y: 10,
+            width: 40,
+            height: 30,
+        });
+
+        const plan = await document.sequence();
+        assert.equal(plan.format, 'open-cam-sequence');
+        assert.equal(plan.operationCount, 3);
+        assert.equal(plan.beforeToolChanges, 2);
+        assert.equal(plan.afterToolChanges, 1);
+        assert.equal(plan.unchanged, false);
+        assert.equal(plan.applied, false);
+        assert.deepEqual(
+            plan.operations.map((entry) => entry.operation),
+            ['face', 'floor', 'holes'],
+        );
+        assert.deepEqual(plan.groups[0]?.operations, ['face', 'floor']);
+        assert.deepEqual(plan.groups[1]?.operations, ['holes']);
+
+        const revision = document.revision;
+        const applied = await document.applySequence();
+        assert.equal(applied.applied, true);
+        assert.equal(applied.revision, revision + 1);
+        assert.equal(document.revision, revision + 1);
+
+        const settled = await document.sequence();
+        assert.equal(settled.unchanged, true);
+
+        const program = await document.gcode();
+        assert.equal(program.split('T1 M6').length - 1, 2);
+        assert.ok(program.lastIndexOf('T1 M6') < program.indexOf('T2 M6'));
+
+        assert.equal((await document.validate()).ok, true);
+    } finally {
+        await session.dispose();
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});

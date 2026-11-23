@@ -15,7 +15,9 @@ import type {
     ExportFormat,
     ExportReport,
     OperationRequest,
+    PostOptions,
     Report,
+    SequenceReport,
     StockRequest,
     ToolImportReport,
     ToolLibraryReport,
@@ -148,8 +150,18 @@ export function estimate(path: string, request: EstimateRequest = {}): CycleTime
 }
 
 /** Renders the G-code program of a document. */
-export function gcode(path: string): string {
-    return decode<string>(() => binding('gcode').gcode(path));
+export function gcode(path: string, request: PostOptions = {}): string {
+    return decode<string>(() => binding('gcode').gcode(path, JSON.stringify(request)));
+}
+
+/** Plans the tool-grouped operation order of a document without changing it. */
+export function sequence(path: string): SequenceReport {
+    return decode<SequenceReport>(() => binding('sequence').sequence(path));
+}
+
+/** Reorders a document by tool, saves it and returns the applied plan. */
+export function applySequence(path: string): SequenceReport {
+    return decode<SequenceReport>(() => binding('sequence.apply').sequence_apply(path));
 }
 
 /** Exports a document as `gcode`, `json`, `csv` or `md`. */

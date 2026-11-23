@@ -29,7 +29,9 @@ export interface NativeBinding {
     validate(path: string): string;
     toolpaths(path: string): string;
     estimate(path: string, requestJson?: string): string;
-    gcode(path: string): string;
+    gcode(path: string, requestJson?: string): string;
+    sequence(path: string): string;
+    sequence_apply(path: string): string;
     export(path: string, format: string, target: string): string;
     report(path: string): string;
 }

@@ -39,6 +39,7 @@ export const errorCodes = [
     'path/outside-stock',
     'export/invalid',
     'estimate/invalid',
+    'post/invalid',
     'cli/unknown-command',
     'cli/missing-argument',
     'cli/missing-option',

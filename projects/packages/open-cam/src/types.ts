@@ -22,6 +22,9 @@ export type PocketShape = 'rect' | 'circle';
 /** Interpolation of the closed rings of a circular contour or pocket. */
 export type ArcMode = 'linear' | 'arc';
 
+/** Coolant mode of the G-code program. */
+export type CoolantMode = 'off' | 'flood' | 'mist';
+
 /** Export formats `exportDocument()` can write. */
 export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md';
 
@@ -253,6 +256,60 @@ export interface EstimateRequest {
     readonly rapidFeed?: number;
     /** Fixed tool-change overhead per distinct tool in seconds; defaults to `3`. */
     readonly toolChangeSeconds?: number;
+}
+
+/**
+ * Post options of `gcode()`; omitted fields keep the generic program.
+ *
+ * They change only the text around the moves: a program number, line numbers and
+ * coolant. Units and absolute mode stay fixed, so the writer never emits `G20`,
+ * `G91` or a vendor dialect.
+ */
+export interface PostOptions {
+    /** Program number emitted as `O<n>` right after the leading `%`; omitted emits no line. */
+    readonly programNumber?: number;
+    /** Prefixes every line between the two `%` lines with `N<n>`; `false` when omitted. */
+    readonly lineNumbers?: boolean;
+    /** Distance between two line numbers; `10` when omitted and at least `1`. */
+    readonly lineIncrement?: number;
+    /** Coolant mode; `off` when omitted. `flood` emits `M8`, `mist` emits `M7`, and both close with `M9`. */
+    readonly coolant?: CoolantMode;
+}
+
+/** One tool group of a sequencing plan. */
+export interface SequenceGroup {
+    readonly tool: string;
+    /** Operation ids of the group, in document order. */
+    readonly operations: readonly string[];
+}
+
+/** One operation in its proposed execution position. */
+export interface SequenceEntry {
+    /** One-based position in the proposed program. */
+    readonly order: number;
+    readonly operation: string;
+    readonly kind: OperationKind;
+    readonly tool: string;
+}
+
+/** Tool-grouped execution plan of one document. */
+export interface SequenceReport {
+    readonly format: string;
+    readonly version: number;
+    readonly units: string;
+    readonly operationCount: number;
+    /** Tool changes of the current document order. */
+    readonly beforeToolChanges: number;
+    /** Tool changes of the proposed order. */
+    readonly afterToolChanges: number;
+    /** `true` when the proposed order equals the document order. */
+    readonly unchanged: boolean;
+    /** `true` when the call reordered and saved the document. */
+    readonly applied: boolean;
+    /** Document revision the report describes. */
+    readonly revision: number;
+    readonly groups: readonly SequenceGroup[];
+    readonly operations: readonly SequenceEntry[];
 }
 
 /** Cycle time estimate of one operation. */

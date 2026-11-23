@@ -16,7 +16,9 @@ import type {
     ExportFormat,
     ExportReport,
     OperationRequest,
+    PostOptions,
     Report,
+    SequenceReport,
     Stock,
     StockRequest,
     ToolImportReport,
@@ -144,10 +146,24 @@ export class CamDocument {
         return service.estimate(this.state.path, request);
     }
 
-    /** Renders the G-code program. */
-    async gcode(): Promise<string> {
+    /** Renders the G-code program, optionally with post options that change the program text only. */
+    async gcode(options: PostOptions = {}): Promise<string> {
         this.assertOpen();
-        return service.gcode(this.state.path);
+        return service.gcode(this.state.path, options);
+    }
+
+    /** Returns the tool-grouped plan without changing the document. */
+    async sequence(): Promise<SequenceReport> {
+        this.assertOpen();
+        return service.sequence(this.state.path);
+    }
+
+    /** Reorders the document by tool and saves it. */
+    async applySequence(): Promise<SequenceReport> {
+        this.assertOpen();
+        const report = service.applySequence(this.state.path);
+        this.state = service.open(this.state.path);
+        return report;
     }
 
     /** Exports the document as `gcode`, `json`, `csv` or `md`. */

@@ -14,8 +14,8 @@
 use std::path::Path;
 
 use cam_model::{
-    CamError, EstimateRequest, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock,
-    TabSettings, Tool,
+    CamError, EstimateRequest, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint,
+    PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -354,13 +354,40 @@ fn estimate(ctx: CallContext) -> Result<JsValue> {
 }
 
 /// Renders the G-code program of a document, as a JSON string.
+///
+/// The optional second argument is a JSON post option set; without it the
+/// generic program with no program number, line numbers or coolant is rendered.
 #[function]
 fn gcode(ctx: CallContext) -> Result<JsValue> {
     let path = text(&ctx, 0)?;
+    let post = match optional_text(&ctx, 1)? {
+        None => PostOptions::default(),
+        Some(raw) => serde_json::from_str(&raw).map_err(|error| argument_error(&format!("expected a JSON object: {error}")))?,
+    };
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;
-    let program = session.gcode().map_err(fail)?;
+    let program = session.gcode_with_post(&post).map_err(fail)?;
     respond(&ctx, &program)
+}
+
+/// Plans the tool-grouped operation order of a document without changing it.
+#[function]
+fn sequence(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.sequence().map_err(fail)?;
+    respond(&ctx, &report)
+}
+
+/// Reorders a document by tool, saves it and returns the applied plan.
+#[function]
+fn sequence_apply(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.apply_sequence().map_err(fail)?;
+    respond(&ctx, &report)
 }
 
 /// Exports a document as `gcode`, `json`, `csv` or `md`.
@@ -403,6 +430,8 @@ register_module![
     toolpaths,
     estimate,
     gcode,
+    sequence,
+    sequence_apply,
     export,
     report
 ];
