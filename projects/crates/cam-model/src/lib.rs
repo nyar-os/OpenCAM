@@ -17,8 +17,11 @@
 //!   cutting, plunge, retract, traverse and tool-change time;
 //! * portable `open-cam-tools` library files plus a tool-table report that ties
 //!   every declared tool to the operations that use it;
+//! * a tool-grouped sequencing plan that keeps every operation of one tool
+//!   together and can be applied to the document;
 //! * a generic absolute-millimetre G-code writer (`G21 G90 G17 G94`) including
-//!   `G81`/`G83` drilling cycles;
+//!   `G81`/`G83` drilling cycles, optional program number, line numbers and
+//!   coolant (`M8`/`M7`/`M9`);
 //! * JSON, CSV and Markdown toolpath reports.
 //!
 //! Three-dimensional surfacing, adaptive clearing, turning, four-axis work,
@@ -33,6 +36,7 @@ mod export;
 mod gcode;
 mod library;
 mod model;
+mod sequence;
 mod session;
 mod toolpath;
 pub mod validate;
@@ -43,12 +47,13 @@ pub use crate::{
         CycleTimeReport, DEFAULT_TOOL_CHANGE_SECONDS, EstimateRequest, OperationEstimate, estimate as estimate_cycle_time,
     },
     export::{markdown, segments_csv, write_atomic},
-    gcode::render as render_gcode,
+    gcode::{PostOptions, render as render_gcode, render_with_post as render_gcode_with_post},
     library::{LIBRARY_FORMAT, LIBRARY_VERSION, ToolEntry, ToolLibrary, ToolTableReport},
     model::{
         CamDocument, FORMAT, Hole, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock, TabSettings, Tool,
         UNITS, VERSION,
     },
+    sequence::{SequenceEntry, SequenceGroup, SequenceReport, plan as sequence_plan, reorder as sequence_reorder},
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
     validate::{Issue, Severity, ValidationReport},
@@ -77,6 +82,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "engrave": "supported",
     "engraveClosed": "supported",
     "ramp": "supported",
+    "sequence": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"
@@ -88,6 +94,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "csv": "supported",
     "md": "supported",
     "toolLibrary": "supported",
+    "gcodePost": "supported",
     "step": "unsupported",
     "dxf": "unsupported"
   }

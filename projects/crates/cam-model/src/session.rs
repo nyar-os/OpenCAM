@@ -17,9 +17,10 @@ use crate::{
     CAPABILITIES_JSON, CamError,
     estimate::{self, CycleTimeReport, EstimateRequest},
     export::{markdown, segments_csv, write_atomic},
-    gcode,
+    gcode::{self, PostOptions},
     library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
+    sequence::{self, SequenceReport},
     toolpath::{self, ToolpathReport},
     validate::{self, ValidationReport},
 };
@@ -309,6 +310,42 @@ impl OpenCam {
     /// Renders the G-code program of the open document.
     pub fn gcode(&self) -> Result<String, CamError> {
         gcode::render(self.document()?)
+    }
+
+    /// Renders the G-code program of the open document with one post option set.
+    ///
+    /// The options change only the program text (program number, line numbers,
+    /// coolant); the moves, feeds and cycles stay exactly the same as
+    /// [`Self::gcode`]. Invalid options report `post/invalid`.
+    pub fn gcode_with_post(&self, post: &PostOptions) -> Result<String, CamError> {
+        gcode::render_with_post(self.document()?, post)
+    }
+
+    /// Returns the tool-grouped plan of the open document without changing it.
+    ///
+    /// The plan keeps every operation of one tool together, in first-appearance
+    /// tool order, and keeps the operations inside a tool in document order. It
+    /// reports the tool changes of the current order and of the proposed one.
+    pub fn sequence(&self) -> Result<SequenceReport, CamError> {
+        let document = self.document()?;
+        Ok(sequence::plan(document, document.revision))
+    }
+
+    /// Reorders the open document by tool and saves it.
+    ///
+    /// An already grouped document is not rewritten and reports
+    /// `applied: false`. Otherwise the grouped document is validated and saved
+    /// atomically, and the report carries the saved revision.
+    pub fn apply_sequence(&mut self) -> Result<SequenceReport, CamError> {
+        let document = self.document()?.clone();
+        let mut report = sequence::plan(&document, document.revision);
+        if report.unchanged {
+            return Ok(report);
+        }
+        let summary = self.persist(sequence::reorder(&document))?;
+        report.applied = true;
+        report.revision = summary.revision;
+        Ok(report)
     }
 
     /// Exports the open document and returns the created files.
