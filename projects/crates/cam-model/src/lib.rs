@@ -22,6 +22,8 @@
 //! * a generic absolute-millimetre G-code writer (`G21 G90 G17 G94`) including
 //!   `G81`/`G83` drilling cycles, optional program number, line numbers and
 //!   coolant (`M8`/`M7`/`M9`);
+//! * rectangular and circular drill patterns, and material-based spindle and
+//!   feed recommendations;
 //! * JSON, CSV and Markdown toolpath reports.
 //!
 //! Three-dimensional surfacing, adaptive clearing, turning, four-axis work,
@@ -33,6 +35,7 @@
 mod error;
 mod estimate;
 mod export;
+mod feeds;
 mod gcode;
 mod library;
 mod model;
@@ -47,11 +50,14 @@ pub use crate::{
         CycleTimeReport, DEFAULT_TOOL_CHANGE_SECONDS, EstimateRequest, OperationEstimate, estimate as estimate_cycle_time,
     },
     export::{markdown, segments_csv, write_atomic},
+    feeds::{
+        DEFAULT_FLUTES, FeedsReport, FeedsRequest, MATERIALS, MAX_SPINDLE, MIN_FEED, MIN_SPINDLE, suggest as suggest_feeds,
+    },
     gcode::{PostOptions, render as render_gcode, render_with_post as render_gcode_with_post},
     library::{LIBRARY_FORMAT, LIBRARY_VERSION, ToolEntry, ToolLibrary, ToolTableReport},
     model::{
-        CamDocument, FORMAT, Hole, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock, TabSettings, Tool,
-        UNITS, VERSION,
+        CamDocument, FORMAT, Hole, HolePattern, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock,
+        TabSettings, Tool, UNITS, VERSION,
     },
     sequence::{SequenceEntry, SequenceGroup, SequenceReport, plan as sequence_plan, reorder as sequence_reorder},
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
@@ -79,10 +85,12 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "pocketFinish": "supported",
     "drill": "supported",
     "drillDwell": "supported",
+    "drillPatterns": "supported",
     "engrave": "supported",
     "engraveClosed": "supported",
     "ramp": "supported",
     "sequence": "supported",
+    "feeds": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"

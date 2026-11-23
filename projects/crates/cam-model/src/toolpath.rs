@@ -941,7 +941,7 @@ fn cut_spans(x0: f64, x1: f64, blocked: &[(f64, f64)]) -> Vec<(f64, f64)> {
 
 fn drill(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let z = stock_height - operation.depth;
-    for hole in &operation.holes {
+    for hole in operation.resolved_holes() {
         builder.rapid_to(Point::new(hole.x, hole.y, safe_z));
         builder.feed_to(Point::new(hole.x, hole.y, z), MoveKind::Plunge, tool.plunge_feed);
         builder.rapid_to(Point::new(hole.x, hole.y, safe_z));

@@ -119,7 +119,7 @@ fn render_with(document: &CamDocument, report: &ToolpathReport, post: &PostOptio
             let depth = number(document.stock.height - operation.depth);
             let retract = number(safe_z);
             let feed = number(tool.map_or(0.0, |tool| tool.plunge_feed));
-            for hole in &operation.holes {
+            for hole in operation.resolved_holes() {
                 let x = number(hole.x);
                 let y = number(hole.y);
                 match (operation.peck, operation.dwell) {

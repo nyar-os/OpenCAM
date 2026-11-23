@@ -164,6 +164,84 @@ impl Hole {
     }
 }
 
+/// One generated hole layout of a `drill` operation.
+///
+/// A pattern replaces the explicit `holes` list: the engine derives every hole
+/// centre from the pattern and the operation anchor `(x, y)`. `kind` is kept as
+/// a string so an unknown value is reported as `operation/invalid` by validation
+/// instead of a parse error. Fields of the unused layout stay `0` and are
+/// omitted from the document.
+///
+/// * `grid` starts at `(x, y)` and emits `columns × rows` holes, `columns` along
+///   X with `spacingX` and `rows` along Y with `spacingY`, in row-major order.
+/// * `circular` centres `count` holes on `(x, y)`, starting at angle 0 (+X) and
+///   running counter-clockwise on the circle of radius `radius`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HolePattern {
+    /// Layout kind: `"grid"` or `"circular"`.
+    pub kind: String,
+    /// Number of grid rows along Y; `0` when the layout is circular.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub rows: u32,
+    /// Number of grid columns along X; `0` when the layout is circular.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub columns: u32,
+    /// Grid distance between two columns; `0` when the layout is circular.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub spacing_x: f64,
+    /// Grid distance between two rows; `0` when the layout is circular.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub spacing_y: f64,
+    /// Number of holes on the circular layout; `0` when the layout is a grid.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub count: u32,
+    /// Radius of the circular layout; `0` when the layout is a grid.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub radius: f64,
+}
+
+impl HolePattern {
+    /// Creates a rectangular grid of `columns × rows` holes.
+    pub fn grid(rows: u32, columns: u32, spacing_x: f64, spacing_y: f64) -> Self {
+        Self { kind: "grid".to_string(), rows, columns, spacing_x, spacing_y, count: 0, radius: 0.0 }
+    }
+
+    /// Creates a circular layout of `count` holes on the circle of `radius`.
+    pub fn circular(count: u32, radius: f64) -> Self {
+        Self { kind: "circular".to_string(), rows: 0, columns: 0, spacing_x: 0.0, spacing_y: 0.0, count, radius }
+    }
+
+    /// Every hole centre this pattern generates around `anchor`.
+    ///
+    /// `anchor` is the operation `(x, y)`: the first grid hole or the circular
+    /// centre. Rounding is left to the caller, so the generator and the writer
+    /// receive the same floating-point centres.
+    pub fn holes(&self, anchor: Hole) -> Vec<Hole> {
+        match self.kind.as_str() {
+            "grid" => {
+                let mut holes = Vec::with_capacity((self.rows as usize) * (self.columns as usize));
+                for row in 0..self.rows {
+                    for column in 0..self.columns {
+                        holes.push(Hole::new(
+                            anchor.x + f64::from(column) * self.spacing_x,
+                            anchor.y + f64::from(row) * self.spacing_y,
+                        ));
+                    }
+                }
+                holes
+            }
+            "circular" => (0..self.count)
+                .map(|index| {
+                    let angle = std::f64::consts::TAU * f64::from(index) / f64::from(self.count);
+                    Hole::new(anchor.x + self.radius * angle.cos(), anchor.y + self.radius * angle.sin())
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// One vertex of the polyline engraved by an `engrave` operation.
 ///
 /// Points are millimetres in the document frame and are connected in order by
@@ -278,15 +356,16 @@ impl LeadSettings {
 ///
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
 /// the tool diameter for facing and 60 % for pockets. Geometry fields are used
-/// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
-/// `peck` and `dwell` only by `drill`, `path` only by `engrave`, `closed` only
-/// by `engrave`, `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
-/// `engrave`, `lead` only by `contour`, `finish` only by `pocket`, and `arcs` only by a
-/// `circle` `contour` or `pocket`. `strategy` selects the rectangle
-/// clearing pattern: `raster` (the default) or `spiral` (concentric rectangles).
-/// `shape` selects the `contour` or `pocket` outline: `rect` (the default) or
-/// `circle`, which uses `width` as the diameter, needs `height` equal to
-/// `width` and is offset outward by the cutter radius for a contour.
+/// by `contour` and `pocket`, `holes` or `pattern` by `drill`, `islands` only by
+/// `pocket`, `peck` and `dwell` only by `drill`, `path` only by `engrave`,
+/// `closed` only by `engrave`, `tabs` only by `contour`, `ramp` only by
+/// `contour`, `pocket` and `engrave`, `lead` only by `contour`, `finish` only by
+/// `pocket`, and `arcs` only by a `circle` `contour` or `pocket`. `strategy`
+/// selects the rectangle clearing pattern: `raster` (the default) or `spiral`
+/// (concentric rectangles). `shape` selects the `contour` or `pocket` outline:
+/// `rect` (the default) or `circle`, which uses `width` as the diameter, needs
+/// `height` equal to `width` and is offset outward by the cutter radius for a
+/// contour.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
@@ -333,6 +412,12 @@ pub struct Operation {
     /// Hole centres of a `drill` operation.
     #[serde(default)]
     pub holes: Vec<Hole>,
+    /// Generated hole layout of a `drill` operation; replaces `holes`.
+    ///
+    /// A pattern and an explicit hole list are mutually exclusive; validation
+    /// rejects a drill that declares both. `None` keeps the explicit list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<HolePattern>,
     /// Polyline vertices of an `engrave` operation, connected in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<PathPoint>,
@@ -419,6 +504,7 @@ impl Operation {
             width: 0.0,
             height: 0.0,
             holes: Vec::new(),
+            pattern: None,
             path: Vec::new(),
             closed: false,
             islands: Vec::new(),
@@ -430,6 +516,18 @@ impl Operation {
             finish: None,
             lead: None,
             arcs: None,
+        }
+    }
+
+    /// Hole centres this operation drills, in execution order.
+    ///
+    /// A declared `pattern` is expanded around the operation anchor `(x, y)`;
+    /// otherwise the explicit `holes` list is returned unchanged. The generator
+    /// and the G-code writer both call this, so they cannot disagree.
+    pub fn resolved_holes(&self) -> Vec<Hole> {
+        match &self.pattern {
+            Some(pattern) => pattern.holes(Hole::new(self.x, self.y)),
+            None => self.holes.clone(),
         }
     }
 }
@@ -464,4 +562,14 @@ impl Point {
 /// Keeps a `false` flag out of the serialized document.
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Keeps an unused grid or circular field out of the serialized document.
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+/// Keeps an unused grid or circular field out of the serialized document.
+fn is_zero_f64(value: &f64) -> bool {
+    *value == 0.0
 }

@@ -17,6 +17,7 @@ use crate::{
     CAPABILITIES_JSON, CamError,
     estimate::{self, CycleTimeReport, EstimateRequest},
     export::{markdown, segments_csv, write_atomic},
+    feeds::{self, FeedsReport, FeedsRequest},
     gcode::{self, PostOptions},
     library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
@@ -157,6 +158,17 @@ impl OpenCam {
     /// Returns the stable capability matrix of this build.
     pub fn capabilities(&self) -> &'static str {
         CAPABILITIES_JSON
+    }
+
+    /// Suggests spindle and feed rates for one material and tool diameter.
+    ///
+    /// The recommendation comes from a fixed per-material surface-speed and
+    /// chip-load table and does not read the open document, so it is valid
+    /// before a document exists. An unknown material reports
+    /// `feeds/unknown-material`; an invalid diameter or flute count reports
+    /// `feeds/invalid`.
+    pub fn suggest_feeds(&self, request: &FeedsRequest) -> Result<FeedsReport, CamError> {
+        feeds::suggest(request)
     }
 
     /// Creates a document at `path` with the default stock and no tools.

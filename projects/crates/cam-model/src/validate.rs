@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     CamError,
-    model::{CamDocument, FORMAT, Operation, OperationKind, TabSettings, Tool, UNITS, VERSION},
+    model::{CamDocument, FORMAT, HolePattern, Operation, OperationKind, TabSettings, Tool, UNITS, VERSION},
 };
 
 /// Severity of one finding.
@@ -332,6 +332,21 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             ));
         }
     }
+    if let Some(pattern) = &operation.pattern {
+        check_pattern(operation, pattern, issues);
+        if operation.kind != OperationKind::Drill {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` uses pattern but only `drill` supports it", operation.id),
+            ));
+        }
+        if !operation.holes.is_empty() {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` declares both holes and pattern; a pattern replaces the hole list", operation.id),
+            ));
+        }
+    }
     match operation.kind {
         OperationKind::Face => check_no_islands(operation, issues),
         OperationKind::Contour => {
@@ -444,7 +459,7 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
         }
         OperationKind::Drill => {
             check_no_islands(operation, issues);
-            if operation.holes.is_empty() {
+            if operation.holes.is_empty() && operation.pattern.is_none() {
                 issues.push(Issue::error("operation/invalid", format!("operation `{}` has no holes", operation.id)));
             }
             if let Some(peck) = operation.peck {
@@ -455,7 +470,7 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
                     ));
                 }
             }
-            for (index, hole) in operation.holes.iter().enumerate() {
+            for (index, hole) in operation.resolved_holes().iter().enumerate() {
                 let inside = hole.x.is_finite()
                     && hole.y.is_finite()
                     && hole.x >= 0.0
@@ -627,6 +642,49 @@ fn validate_polyline(operation: &Operation, document: &CamDocument, issues: &mut
                 ),
             ));
         }
+    }
+}
+
+/// Checks the generated hole layout of a `drill` operation.
+///
+/// A grid needs at least one row and one column and a finite positive spacing in
+/// both directions; a circular layout needs a hole count of at least one and a
+/// finite positive radius. The generated holes themselves are checked against
+/// the stock by the `drill` branch of [`validate_operation`].
+fn check_pattern(operation: &Operation, pattern: &HolePattern, issues: &mut Vec<Issue>) {
+    match pattern.kind.as_str() {
+        "grid" => {
+            if pattern.rows == 0 || pattern.columns == 0 {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` grid pattern needs at least one row and one column", operation.id),
+                ));
+            }
+            if !positive(pattern.spacing_x) || !positive(pattern.spacing_y) {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` grid pattern needs a finite positive spacingX and spacingY", operation.id),
+                ));
+            }
+        }
+        "circular" => {
+            if pattern.count == 0 {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` circular pattern needs a count of at least one", operation.id),
+                ));
+            }
+            if !positive(pattern.radius) {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` circular pattern needs a finite positive radius", operation.id),
+                ));
+            }
+        }
+        other => issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` pattern `{other}` is unknown; only `grid` or `circular` is supported", operation.id),
+        )),
     }
 }
 
