@@ -13,6 +13,8 @@
 //!   `stepover`;
 //! * a deterministic toolpath generator with cutting/rapid lengths and cycle
 //!   time estimation;
+//! * a configurable cycle-time estimate report splitting every operation into
+//!   cutting, plunge, retract, traverse and tool-change time;
 //! * a generic absolute-millimetre G-code writer (`G21 G90 G17 G94`) including
 //!   `G81`/`G83` drilling cycles;
 //! * JSON, CSV and Markdown toolpath reports.
@@ -24,6 +26,7 @@
 #![deny(missing_docs)]
 
 mod error;
+mod estimate;
 mod export;
 mod gcode;
 mod model;
@@ -33,6 +36,9 @@ pub mod validate;
 
 pub use crate::{
     error::{CamError, not_implemented},
+    estimate::{
+        CycleTimeReport, DEFAULT_TOOL_CHANGE_SECONDS, EstimateRequest, OperationEstimate, estimate as estimate_cycle_time,
+    },
     export::{markdown, segments_csv, write_atomic},
     gcode::render as render_gcode,
     model::{

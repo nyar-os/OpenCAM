@@ -11,6 +11,7 @@
             "open-cam operation remove <file> --id <id>",
             "open-cam validate <file>",
             "open-cam toolpaths <file> [--out report.json]",
+            "open-cam estimate <file> [--rapid-feed <mm/min>] [--tool-change <seconds>] [--out estimate.json]",
             "open-cam gcode <file> [--out program.nc]",
             "open-cam export <file> --format gcode|json|csv|md --out <path>",
             "open-cam report <file>",

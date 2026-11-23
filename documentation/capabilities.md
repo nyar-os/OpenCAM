@@ -30,6 +30,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | multi-pass Z depth (`stepdown`) | ✅ supported |
 | raster spacing (`stepover`) | ✅ supported |
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
+| cycle-time estimate report (cut/plunge/retract/traverse/tool-change split) | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
 | generic absolute-millimetre G-code | ✅ supported |
 | 3D surfacing, STL/solid input | ❌ not implemented |
@@ -176,7 +177,12 @@ The machine-readable version is printed by `open-cam capabilities` and by
     so existing output is byte-identical.
 14. **Metrics.** Cutting length and time use the cutting feed; rapid length and
     time use a fixed 8000 mm/min traverse. Cycle time is the sum of both. A
-    drill `dwell` is machine time and is not included.
+    drill `dwell` is machine time and is not included. The `estimate` report
+    splits the same moves into cutting, plunge, retract (vertical rapid lifts),
+    traverse (other rapids) and tool-change time, charges one fixed overhead to
+    the first operation using each distinct tool and accepts `rapidFeed` and
+    `toolChangeSeconds` overrides; with the defaults its motion time equals the
+    toolpath report's cycle time.
 
 ## G-code
 
@@ -218,6 +224,7 @@ outside the stock) do not make `ok` false.
 | File | Asserts |
 |------|---------|
 | `tests/toolpath.rs` | depth levels, closed contour, pocket containment, drill plunges, determinism |
+| `tests/estimate.rs` | toolpath cycle-time parity, per-tool change accounting, rapid-feed scaling, drill plunge/retract/traverse split, invalid request codes, serde defaults, empty document, determinism |
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |

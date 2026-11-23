@@ -302,6 +302,26 @@ async function dispatch(args: readonly string[]): Promise<number> {
                 }
                 print(report);
             });
+        case 'estimate':
+            return readDocument(
+                args.slice(1),
+                'estimate <file>',
+                ['--rapid-feed', '--tool-change', '--out'],
+                [],
+                async (document, parsed) => {
+                    const rapidFeed = number(parsed, '--rapid-feed');
+                    const toolChangeSeconds = number(parsed, '--tool-change');
+                    const report = await document.estimateCycleTime({
+                        ...(rapidFeed === undefined ? {} : { rapidFeed }),
+                        ...(toolChangeSeconds === undefined ? {} : { toolChangeSeconds }),
+                    });
+                    const target = parsed.options.get('--out');
+                    if (target !== undefined) {
+                        fs.writeFileSync(target, JSON.stringify(report, null, 2));
+                    }
+                    print(report);
+                },
+            );
         case 'gcode':
             return readDocument(args.slice(1), 'gcode <file>', ['--out'], [], async (document, parsed) => {
                 const program = await document.gcode();

@@ -14,7 +14,8 @@
 use std::path::Path;
 
 use cam_model::{
-    CamError, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool,
+    CamError, EstimateRequest, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock,
+    TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -301,6 +302,20 @@ fn toolpaths(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &report)
 }
 
+/// Estimates the cycle time of a document from an optional JSON request.
+#[function]
+fn estimate(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let request = match optional_text(&ctx, 1)? {
+        None => EstimateRequest::default(),
+        Some(raw) => serde_json::from_str(&raw).map_err(|error| argument_error(&format!("expected a JSON object: {error}")))?,
+    };
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.estimate(&request).map_err(fail)?;
+    respond(&ctx, &report)
+}
+
 /// Renders the G-code program of a document, as a JSON string.
 #[function]
 fn gcode(ctx: CallContext) -> Result<JsValue> {
@@ -346,6 +361,7 @@ register_module![
     operation_remove,
     validate,
     toolpaths,
+    estimate,
     gcode,
     export,
     report

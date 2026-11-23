@@ -9,7 +9,9 @@
 import { NotImplementedError, OpenCAMError, errorCodes, type OpenCAMErrorCode } from './errors.js';
 import { nativeBinding } from './native.js';
 import type {
+    CycleTimeReport,
     DocumentSummary,
+    EstimateRequest,
     ExportFormat,
     ExportReport,
     OperationRequest,
@@ -120,6 +122,11 @@ export function validate(path: string): ValidationReport {
 /** Generates the toolpath report of a document. */
 export function toolpaths(path: string): ToolpathReport {
     return decode<ToolpathReport>(() => binding('toolpaths').toolpaths(path));
+}
+
+/** Estimates the cycle time of a document. */
+export function estimate(path: string, request: EstimateRequest = {}): CycleTimeReport {
+    return decode<CycleTimeReport>(() => binding('estimate').estimate(path, JSON.stringify(request)));
 }
 
 /** Renders the G-code program of a document. */

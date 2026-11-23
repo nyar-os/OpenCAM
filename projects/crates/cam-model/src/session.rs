@@ -15,6 +15,7 @@ use serde::Serialize;
 
 use crate::{
     CAPABILITIES_JSON, CamError,
+    estimate::{self, CycleTimeReport, EstimateRequest},
     export::{markdown, segments_csv, write_atomic},
     gcode,
     model::{CamDocument, Operation, Stock, Tool, UNITS},
@@ -236,6 +237,11 @@ impl OpenCam {
     /// Generates the toolpath report of the open document.
     pub fn toolpaths(&self) -> Result<ToolpathReport, CamError> {
         toolpath::generate(self.document()?)
+    }
+
+    /// Estimates the cycle time of the open document.
+    pub fn estimate(&self, request: &EstimateRequest) -> Result<CycleTimeReport, CamError> {
+        estimate::estimate(self.document()?, request)
     }
 
     /// Renders the G-code program of the open document.

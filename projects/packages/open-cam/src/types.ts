@@ -222,6 +222,49 @@ export interface ToolpathReport {
     readonly operations: readonly OperationPath[];
 }
 
+/** Request of `estimateCycleTime()`; omitted fields select the engine defaults. */
+export interface EstimateRequest {
+    /** Rapid traverse rate in millimetres per minute; defaults to `8000`. */
+    readonly rapidFeed?: number;
+    /** Fixed tool-change overhead per distinct tool in seconds; defaults to `3`. */
+    readonly toolChangeSeconds?: number;
+}
+
+/** Cycle time estimate of one operation. */
+export interface OperationEstimate {
+    readonly operation: string;
+    readonly kind: OperationKind;
+    readonly tool: string;
+    readonly cuttingLength: number;
+    readonly plungeLength: number;
+    readonly retractLength: number;
+    readonly traverseLength: number;
+    readonly cuttingSeconds: number;
+    readonly plungeSeconds: number;
+    readonly retractSeconds: number;
+    readonly traverseSeconds: number;
+    /** Non-zero only on the first operation that uses its tool. */
+    readonly toolchangeSeconds: number;
+    readonly totalSeconds: number;
+}
+
+/** Complete cycle time report. */
+export interface CycleTimeReport {
+    readonly format: string;
+    readonly version: number;
+    readonly units: string;
+    readonly rapidFeed: number;
+    readonly toolChangeSeconds: number;
+    readonly toolChanges: number;
+    readonly cuttingSeconds: number;
+    readonly plungeSeconds: number;
+    readonly retractSeconds: number;
+    readonly traverseSeconds: number;
+    readonly toolchangeSeconds: number;
+    readonly totalSeconds: number;
+    readonly operations: readonly OperationEstimate[];
+}
+
 /** Result of `exportDocument()`. */
 export interface ExportReport {
     readonly format: ExportFormat;

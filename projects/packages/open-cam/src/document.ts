@@ -10,7 +10,9 @@
 import { OpenCAMError } from './errors.js';
 import * as service from './service.js';
 import type {
+    CycleTimeReport,
     DocumentSummary,
+    EstimateRequest,
     ExportFormat,
     ExportReport,
     OperationRequest,
@@ -111,6 +113,12 @@ export class CamDocument {
     async toolpaths(): Promise<ToolpathReport> {
         this.assertOpen();
         return service.toolpaths(this.state.path);
+    }
+
+    /** Estimates the cycle time of the document. */
+    async estimateCycleTime(request?: EstimateRequest): Promise<CycleTimeReport> {
+        this.assertOpen();
+        return service.estimate(this.state.path, request);
     }
 
     /** Renders the G-code program. */

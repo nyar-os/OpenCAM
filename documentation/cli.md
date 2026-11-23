@@ -216,6 +216,24 @@ field. Raster operations keep the previous shape and add no
 fields. A drill `dwell` is a bottom-of-hole pause and does not add a move or
 cycle time.
 
+## estimate
+
+```shell
+open-cam estimate <file> [--rapid-feed <mm/min>] [--tool-change <seconds>] [--out estimate.json]
+```
+
+Prints the cycle-time report and optionally writes the same JSON. The report
+reuses the generated toolpath moves and splits every operation into
+`cuttingSeconds`, `plungeSeconds`, `retractSeconds`, `traverseSeconds` and
+`toolchangeSeconds`. Cutting and plunge time use the move feeds; vertical
+rapid lifts count as `retractSeconds` and every other rapid move as
+`traverseSeconds`, both at `--rapid-feed` (default `8000` mm/min). One fixed
+`--tool-change` overhead (default `3` seconds) is charged to the first
+operation that uses each distinct tool and counted in `toolChanges`.
+`totalSeconds` sums the five components per operation and over the whole
+program; with the default request the motion time equals the toolpath
+report's `estimatedSeconds` plus `toolChanges × 3`.
+
 ## gcode
 
 ```shell

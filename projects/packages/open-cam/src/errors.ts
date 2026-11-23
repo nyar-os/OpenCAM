@@ -37,6 +37,7 @@ export const errorCodes = [
     'operation/strategy-island',
     'path/outside-stock',
     'export/invalid',
+    'estimate/invalid',
     'cli/unknown-command',
     'cli/missing-argument',
     'cli/missing-option',

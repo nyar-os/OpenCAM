@@ -8,7 +8,8 @@
 use std::{collections::HashMap, env, path::Path, process};
 
 use cam_model::{
-    CamError, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool,
+    CamError, EstimateRequest, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock,
+    TabSettings, Tool,
 };
 
 const USAGE: &str = "\
@@ -31,6 +32,7 @@ Usage:
   ocam operation remove <file> --id <id>
   ocam validate <file>
   ocam toolpaths <file> [--out report.json]
+  ocam estimate <file> [--rapid-feed <mm/min>] [--tool-change <seconds>] [--out estimate.json]
   ocam gcode <file> [--out program.nc]
   ocam export <file> --format gcode|json|csv|md --out <path>
   ocam report <file>
@@ -92,6 +94,27 @@ fn run(args: &[String]) -> Result<i32, CamError> {
             let values = Options::parse(&args[2..], &["--out"], &[])?;
             let session = session(file)?;
             let report = session.toolpaths()?;
+            if let Some(target) = values.value("--out") {
+                cam_model::write_atomic(
+                    Path::new(target),
+                    &serde_json::to_string_pretty(&report)
+                        .map_err(|error| CamError::new("document/serialize", error.to_string()))?,
+                )?;
+            }
+            print_json(&report)
+        }
+        "estimate" => {
+            let file = positional(args, 1, "estimate <file>")?;
+            let values = Options::parse(&args[2..], &["--rapid-feed", "--tool-change", "--out"], &[])?;
+            let mut request = EstimateRequest::default();
+            if let Some(rapid_feed) = values.optional_number("--rapid-feed")? {
+                request.rapid_feed = rapid_feed;
+            }
+            if let Some(tool_change_seconds) = values.optional_number("--tool-change")? {
+                request.tool_change_seconds = tool_change_seconds;
+            }
+            let session = session(file)?;
+            let report = session.estimate(&request)?;
             if let Some(target) = values.value("--out") {
                 cam_model::write_atomic(
                     Path::new(target),
