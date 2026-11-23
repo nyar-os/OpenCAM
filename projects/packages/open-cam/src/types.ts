@@ -80,6 +80,62 @@ export interface Hole {
     readonly y: number;
 }
 
+/** Layout of a generated drilling pattern. */
+export type HolePatternKind = 'grid' | 'circular';
+
+/**
+ * Generated hole layout of a `drill` operation; replaces the explicit hole list.
+ *
+ * A `grid` starts at the operation `(x, y)` and emits `columns × rows` holes,
+ * `columns` along X with `spacingX` and `rows` along Y with `spacingY`. A
+ * `circular` layout centres `count` holes on `(x, y)`, starting at angle 0 (+X)
+ * and running counter-clockwise on the circle of `radius`. Only the fields of
+ * the selected layout are used.
+ */
+export interface HolePattern {
+    readonly kind: HolePatternKind;
+    readonly rows?: number;
+    readonly columns?: number;
+    readonly spacingX?: number;
+    readonly spacingY?: number;
+    readonly count?: number;
+    readonly radius?: number;
+}
+
+/** Material accepted by the cutting parameter recommendation. */
+export type Material = 'aluminium' | 'aluminum' | 'brass' | 'steel' | 'stainless' | 'plastic' | 'wood';
+
+/** Request of `OpenCAM.feeds()`: one material and one tool. */
+export interface FeedsRequest {
+    /** Material name; `aluminum` is accepted as an alias of `aluminium`. */
+    readonly material: Material | (string & {});
+    /** Tool diameter in millimetres. */
+    readonly diameter: number;
+    /** Number of flutes; defaults to `2`. */
+    readonly flutes?: number;
+}
+
+/** Recommended spindle and feeds of one tool in one material. */
+export interface FeedsReport {
+    readonly format: string;
+    readonly version: number;
+    readonly units: string;
+    /** Canonical material name that was looked up. */
+    readonly material: string;
+    readonly diameter: number;
+    readonly flutes: number;
+    /** Table cutting speed of the material, in metres per minute. */
+    readonly surfaceSpeed: number;
+    /** Selected chip load per tooth, in millimetres. */
+    readonly chipLoad: number;
+    /** Recommended spindle speed in rpm, rounded to 100 and clamped to `100 … 24000`. */
+    readonly spindle: number;
+    /** Recommended cutting feed in mm/min, rounded to 10. */
+    readonly feed: number;
+    /** Recommended plunge feed in mm/min, 30 % of `feed` and rounded to 10. */
+    readonly plungeFeed: number;
+}
+
 /** One vertex of the polyline engraved by an `engrave` operation. */
 export interface PathPoint {
     readonly x: number;
@@ -134,6 +190,8 @@ export interface Operation {
     readonly width: number;
     readonly height: number;
     readonly holes: readonly Hole[];
+    /** Generated hole layout of a drill operation; replaces `holes`. */
+    readonly pattern?: HolePattern;
     /** Polyline vertices of an engrave operation, connected in order. */
     readonly path?: readonly PathPoint[];
     /** Closes an engrave polyline back to its first point; absent means open. */
@@ -431,6 +489,8 @@ export interface OperationRequest {
     readonly width?: number;
     readonly height?: number;
     readonly holes?: readonly Hole[];
+    /** Generated hole layout of a drill operation; may not be combined with `holes`. */
+    readonly pattern?: HolePattern;
     /** Polyline vertices of an engrave operation, connected in order. */
     readonly path?: readonly PathPoint[];
     /** Closes the engrave polyline back to its first point; `false` when omitted. */

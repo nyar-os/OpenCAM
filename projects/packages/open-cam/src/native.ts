@@ -32,6 +32,7 @@ export interface NativeBinding {
     gcode(path: string, requestJson?: string): string;
     sequence(path: string): string;
     sequence_apply(path: string): string;
+    feeds(requestJson: string): string;
     export(path: string, format: string, target: string): string;
     report(path: string): string;
 }

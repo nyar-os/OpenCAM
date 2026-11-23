@@ -40,6 +40,8 @@ export const errorCodes = [
     'export/invalid',
     'estimate/invalid',
     'post/invalid',
+    'feeds/invalid',
+    'feeds/unknown-material',
     'cli/unknown-command',
     'cli/missing-argument',
     'cli/missing-option',

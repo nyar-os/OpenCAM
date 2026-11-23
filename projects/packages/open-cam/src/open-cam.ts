@@ -9,7 +9,7 @@
 import { CamDocument } from './document.js';
 import { OpenCAMError } from './errors.js';
 import * as service from './service.js';
-import type { OpenCAMCapabilities, OpenCAMOptions } from './types.js';
+import type { FeedsReport, FeedsRequest, OpenCAMCapabilities, OpenCAMOptions } from './types.js';
 
 /** Machining session. One instance owns the documents it opens. */
 export class OpenCAM {
@@ -31,6 +31,12 @@ export class OpenCAM {
     async capabilities(): Promise<OpenCAMCapabilities> {
         this.assertActive();
         return service.capabilities();
+    }
+
+    /** Suggests spindle and feed rates for one material and tool diameter. */
+    async feeds(request: FeedsRequest): Promise<FeedsReport> {
+        this.assertActive();
+        return service.feeds(request);
     }
 
     /** Creates an empty document at `path` and returns it. */

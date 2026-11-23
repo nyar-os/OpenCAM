@@ -14,6 +14,8 @@ import type {
     EstimateRequest,
     ExportFormat,
     ExportReport,
+    FeedsReport,
+    FeedsRequest,
     OperationRequest,
     PostOptions,
     Report,
@@ -162,6 +164,11 @@ export function sequence(path: string): SequenceReport {
 /** Reorders a document by tool, saves it and returns the applied plan. */
 export function applySequence(path: string): SequenceReport {
     return decode<SequenceReport>(() => binding('sequence.apply').sequence_apply(path));
+}
+
+/** Suggests spindle and feed rates for one material and tool diameter. */
+export function feeds(request: FeedsRequest): FeedsReport {
+    return decode<FeedsReport>(() => binding('feeds').feeds(JSON.stringify(request)));
 }
 
 /** Exports a document as `gcode`, `json`, `csv` or `md`. */

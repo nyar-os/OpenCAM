@@ -367,6 +367,125 @@ test('gcode post options add a program number, line numbers and coolant', async 
     }
 });
 
+test('a drill pattern expands into grid and circular holes', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-patterns-'));
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        assert.equal((await session.capabilities()).operations.drillPatterns, 'supported');
+
+        const folder = fs.mkdtempSync(path.join(directory, 'job-'));
+        const document = await session.create(path.join(folder, 'part.ocam'));
+        await document.setStock({ width: 120, depth: 100, height: 10 });
+        await document.addTool({ id: 't6', diameter: 6, spindle: 12000, feed: 1200, plungeFeed: 300 });
+        await document.addOperation({
+            id: 'grid',
+            kind: 'drill',
+            tool: 't6',
+            depth: 4,
+            stepdown: 4,
+            x: 10,
+            y: 10,
+            pattern: { kind: 'grid', rows: 2, columns: 3, spacingX: 15, spacingY: 10 },
+        });
+        await document.addOperation({
+            id: 'ring',
+            kind: 'drill',
+            tool: 't6',
+            depth: 4,
+            stepdown: 4,
+            x: 60,
+            y: 50,
+            pattern: { kind: 'circular', count: 4, radius: 10 },
+        });
+
+        const report = await document.toolpaths();
+        const grid = report.operations[0] ?? assert.fail('missing grid operation');
+        const plunges = grid.segments.filter((segment) => segment.kind === 'plunge');
+        assert.equal(plunges.length, 6);
+        assert.deepEqual(plunges[5]?.to, { x: 40, y: 20, z: 6 });
+        const ring = report.operations[1] ?? assert.fail('missing ring operation');
+        assert.equal(ring.segments.filter((segment) => segment.kind === 'plunge').length, 4);
+
+        const program = await document.gcode();
+        assert.equal(program.split('G81 ').length - 1, 10);
+        assert.ok(program.includes('G81 X40 Y20 Z6 R15 F300'));
+        assert.ok(program.includes('G81 X70 Y50 Z6 R15 F300'));
+
+        await assert.rejects(
+            document.addOperation({
+                id: 'both',
+                kind: 'drill',
+                tool: 't6',
+                depth: 4,
+                stepdown: 4,
+                holes: [{ x: 10, y: 10 }],
+                pattern: { kind: 'grid', rows: 1, columns: 1, spacingX: 10, spacingY: 10 },
+            }),
+            (error: unknown) => {
+                assert.ok(isOpenCAMError(error));
+                assert.equal(error.code, 'operation/invalid');
+                return true;
+            },
+        );
+        assert.equal((await document.validate()).ok, true);
+    } finally {
+        await session.dispose();
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test('the feeds recommendation follows the material and diameter table', async (t: TestContext) => {
+    const session = new OpenCAM();
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        assert.equal((await session.capabilities()).operations.feeds, 'supported');
+
+        const report = await session.feeds({ material: 'aluminium', diameter: 6, flutes: 2 });
+        assert.equal(report.format, 'open-cam-feeds');
+        assert.equal(report.units, 'mm');
+        assert.equal(report.surfaceSpeed, 300);
+        assert.equal(report.chipLoad, 0.02);
+        assert.equal(report.spindle, 15900);
+        assert.equal(report.feed, 640);
+        assert.equal(report.plungeFeed, 190);
+
+        const alias = await session.feeds({ material: 'aluminum', diameter: 6, flutes: 2 });
+        assert.deepEqual(alias, report);
+
+        await assert.rejects(session.feeds({ material: 'titanium', diameter: 6 }), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'feeds/unknown-material');
+            return true;
+        });
+        await assert.rejects(session.feeds({ material: 'steel', diameter: 0 }), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'feeds/invalid');
+            return true;
+        });
+    } finally {
+        await session.dispose();
+    }
+});
+
 test('sequencing groups operations by tool and applies the plan', async (t: TestContext) => {
     const session = new OpenCAM();
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-sequence-'));

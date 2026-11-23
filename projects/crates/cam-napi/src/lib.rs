@@ -14,8 +14,8 @@
 use std::path::Path;
 
 use cam_model::{
-    CamError, EstimateRequest, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint,
-    PostOptions, Stock, TabSettings, Tool,
+    CamError, EstimateRequest, ExportFormat, FeedsRequest, Hole, HolePattern, Island, LeadSettings, OpenCam, Operation,
+    OperationKind, PathPoint, PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -257,6 +257,27 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
         }
         operation.holes = parsed;
     }
+    match request.get("pattern") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(_)) => {
+            let pattern = request.get("pattern").expect("checked object");
+            let kind = match pattern.get("kind") {
+                None | Some(Value::Null) => String::new(),
+                Some(Value::String(value)) => value.clone(),
+                Some(_) => return Err(argument_error("`pattern.kind` must be a string")),
+            };
+            operation.pattern = Some(HolePattern {
+                kind,
+                rows: optional_u32(pattern, "rows")?.unwrap_or(0),
+                columns: optional_u32(pattern, "columns")?.unwrap_or(0),
+                spacing_x: number_field(pattern, "spacingX")?.unwrap_or(0.0),
+                spacing_y: number_field(pattern, "spacingY")?.unwrap_or(0.0),
+                count: optional_u32(pattern, "count")?.unwrap_or(0),
+                radius: number_field(pattern, "radius")?.unwrap_or(0.0),
+            });
+        }
+        Some(_) => return Err(argument_error("`pattern` must be an object")),
+    }
     if let Some(Value::Array(points)) = request.get("path") {
         let mut parsed = Vec::with_capacity(points.len());
         for point in points {
@@ -390,6 +411,21 @@ fn sequence_apply(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &report)
 }
 
+/// Suggests spindle and feed rates from a JSON request.
+///
+/// The request carries `material` and `diameter` and an optional `flutes`; the
+/// report is the `open-cam-feeds` lookup of the shared engine. An unknown
+/// material reports `feeds/unknown-material` and an invalid request
+/// `feeds/invalid`.
+#[function]
+fn feeds(ctx: CallContext) -> Result<JsValue> {
+    let raw = optional_text(&ctx, 0)?.ok_or_else(|| argument_error("a JSON request is required"))?;
+    let request: FeedsRequest =
+        serde_json::from_str(&raw).map_err(|error| argument_error(&format!("expected a JSON object: {error}")))?;
+    let report = OpenCam::new().suggest_feeds(&request).map_err(fail)?;
+    respond(&ctx, &report)
+}
+
 /// Exports a document as `gcode`, `json`, `csv` or `md`.
 #[function]
 fn export(ctx: CallContext) -> Result<JsValue> {
@@ -432,6 +468,7 @@ register_module![
     gcode,
     sequence,
     sequence_apply,
+    feeds,
     export,
     report
 ];
