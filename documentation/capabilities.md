@@ -15,12 +15,14 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `face` raster facing | ✅ supported |
 | `contour` outside rectangular profile, cutter-radius offset | ✅ supported |
 | `contour` outside circular profile (`shape: "circle"`) | ✅ supported |
+| `contour` circular ring arc output (`arcs: "arc"`) | ✅ supported |
 | `contour` holding tabs (`tabs`, rectangle or circle) | ✅ supported |
 | `contour` tangential lead-in / lead-out arcs (`lead`, rectangle or circle) | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
 | `pocket` circle (concentric ring) clearing | ✅ supported |
+| `pocket` circular ring arc output (`arcs: "arc"`) | ✅ supported |
 | `pocket` wall finish pass (`finish`) | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | `drill` bottom dwell (`dwell`, `G82`) | ✅ supported |
@@ -31,6 +33,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | raster spacing (`stepover`) | ✅ supported |
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
 | cycle-time estimate report (cut/plunge/retract/traverse/tool-change split) | ✅ supported |
+| portable tool library (`open-cam-tools`) import and export | ✅ supported |
+| tool table query with per-tool operation usage | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
 | generic absolute-millimetre G-code | ✅ supported |
 | 3D surfacing, STL/solid input | ❌ not implemented |
@@ -183,6 +187,30 @@ The machine-readable version is printed by `open-cam capabilities` and by
     the first operation using each distinct tool and accepts `rapidFeed` and
     `toolChangeSeconds` overrides; with the defaults its motion time equals the
     toolpath report's cycle time.
+15. **Arc rings.** `arcs: "arc"` changes only the interpolation of the closed
+    rings of a `circle` `contour` or `pocket`; `arcs: "linear"` and an omitted
+    value keep the 72-chord approximation byte for byte. Every ring is emitted
+    as counter-clockwise arcs of at most half a circle, so a full turn becomes
+    two `G3` arcs and a tab-free interval between two tabs becomes as many arcs
+    as its angular span needs. Ring radii, `stepover`, depth levels, feeds, ring
+    transitions, tab lifts, ramp entries and `loopCount` are unchanged. Each arc
+    contributes its true length `radius × sweep` to `cutLength` and the cycle
+    time. `arcs` is valid only for a `circle` contour or pocket, and an unknown
+    value reports `operation/invalid` like any other kind or shape that uses it.
+
+## Tool library
+
+A document keeps its tool table local. One `open-cam-tools` file is a portable
+library: `format` `open-cam-tools`, `version` 1, `units` `mm` and a `tools` array
+in the document's tool schema. Export writes the document table in document
+order; import validates the whole file, then merges its tools and saves the
+document atomically. A malformed file, an unsupported format, version or unit
+set reports `tool/library-invalid`, a malformed tool reports `tool/invalid` and
+a tool id declared twice — inside the file or against the document — reports
+`tool/duplicate-id`. A rejected import leaves the document and its revision
+untouched. The tool-table report (`open-cam-tool-table`, printed by `tool list`)
+lists every declared tool in document order with `usedBy` (operation ids) and
+`used`, plus `toolCount` and `unusedCount`.
 
 ## G-code
 
@@ -204,7 +232,8 @@ XY plane, at the cutting feed. Every other move stays `G0` or `G1`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish`, `lead` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `lead` is valid only for `contour`, needs a finite positive `radius` and a `direction` of `cw` or `ccw`, and is rejected together with `ramp`; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck` |
+| `tool/library-invalid` | a tool library file is not JSON, not `open-cam-tools` version 1 in millimetres, or cannot be parsed |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish`, `lead` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `lead` is valid only for `contour`, needs a finite positive `radius` and a `direction` of `cw` or `ccw`, and is rejected together with `ramp`; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck`; `arcs` is valid only for a `circle` contour or pocket and must be `linear` or `arc` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -234,18 +263,22 @@ outside the stock) do not make `ok` false.
 | `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
 | `tests/lead.rs` | tangential lead-in/lead-out geometry, arc centre, radius and half-circle length, `G2`/`G3` lines with `I`/`J` centre offsets, mirrored `ccw` arcs, circular arcs covering opposite halves, cut length, tabs and stepdown combination, invalid kind, radius, direction and ramp rejection, no-lead byte identity, determinism and round trip |
 | `tests/finish.rs` | no-finish byte identity, one wall loop per level for raster, spiral and circular pockets, wall clearance and depth, invalid kinds and island rejection, cut length and loop count, determinism and round trip |
+| `tests/arcs.rs` | opt-in byte identity, two `G3` half arcs per pocket ring and contour level, tab intervals as arcs between the lifts, arc lengths below a half circle, validation codes, determinism and round trip |
+| `tests/tools.rs` | tool-table usage, library export and import round trip, rejection of duplicate ids, bad format, version, units, malformed JSON, invalid tools and a missing file without touching the document |
 | `tests/dwell.rs` | `G82`/`P` and `G80` per hole, no `G4`, no-dwell byte identity, peck and non-drill rejection, invalid values, unchanged toolpath moves, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
-| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting and contour lead arcs (skipped without the addon) |
+| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output and the tool library (skipped without the addon) |
 
 ## Limitations
 
 - Rasters are axis-aligned and spiral pockets are concentric rectangles; there
-  is no trochoidal, adaptive or arc-following strategy. Circular pockets and
-  circular contours are approximated by 72 linear segments per ring, not by
-  `G2`/`G3` arcs; only contour lead arcs are exact `G2`/`G3` half circles.
+  is no trochoidal, adaptive or arc-following strategy. By default circular
+  pockets and circular contours are approximated by 72 linear segments per ring;
+  `arcs: "arc"` replaces the cutting rings with counter-clockwise `G3` arcs of at
+  most a half circle, but no other move becomes an arc and no clockwise ring is
+  emitted. Contour lead arcs stay the only `G2` interpolation.
 - Spiral pockets do not support islands and reject them with
   `operation/strategy-island`; use the raster strategy when islands are needed.
 - Circular pockets support only concentric rings: an explicit `strategy` is
@@ -284,4 +317,8 @@ outside the stock) do not make `ok` false.
   `face`, `contour`, `drill` or `engrave`.
 - The validator checks geometry against the stock, not against fixtures, clamps
   or machine travel limits.
+- A tool library carries tool data only: no holders, materials, vendor catalogs
+  or per-operation overrides. Import is an id-based merge with no conflict
+  resolution beyond `tool/duplicate-id`; a tool already declared in the document
+  must be removed first.
 - Cycle time is a kinematic estimate, not a machine simulation.

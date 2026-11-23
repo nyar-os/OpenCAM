@@ -48,13 +48,48 @@ open-cam tool remove <file> --id <id>
 A tool referenced by an operation reports `tool/in-use`; an unknown id reports
 `tool/unknown-id`.
 
+## tool list
+
+```shell
+open-cam tool list <file>
+```
+
+Prints the `open-cam-tool-table` report: `toolCount`, `unusedCount` and one
+entry per declared tool in document order with its `usedBy` operation ids and a
+`used` flag. A tool no operation references is visible without opening the
+document.
+
+## tool export
+
+```shell
+open-cam tool export <file> --out <library.json>
+```
+
+Writes the document tool table as a portable `open-cam-tools` library
+(`format`, `version` 1, `units` `mm`, `tools`). The file is deterministic and
+every declared tool is written in document order, used or not.
+
+## tool import
+
+```shell
+open-cam tool import <file> --from <library.json>
+```
+
+Validates the whole library, merges its tools into the document and saves it
+atomically, then prints `{ "format": "open-cam-tool-import", "imported": [...],
+"toolCount": <n>, ... }`. A malformed file, an unsupported format, version or
+unit set reports `tool/library-invalid`; a malformed tool reports `tool/invalid`;
+an id declared twice inside the file or already in the document reports
+`tool/duplicate-id`. A rejected import leaves the document and its revision
+untouched.
+
 ## operation add
 
 ```shell
 open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--stepdown <d>] [--stepover <d>] [--ramp <mm>] [--name <name>]
                       [--strategy raster|spiral]
-                      [--shape rect|circle]
+                      [--shape rect|circle] [--arcs linear|arc]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                       [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>]
                       [--island <x,y,w,h>]...
@@ -67,8 +102,8 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 | Kind | Geometry |
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
-| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; optional `--lead` tangential entry and exit arcs; `--shape circle` cuts a circular outside profile |
-| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles, optional `--finish` wall loop |
+| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; optional `--lead` tangential entry and exit arcs; `--shape circle` cuts a circular outside profile, optionally with `--arcs arc`; |
+| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings with optional `--arcs arc`, repeatable `--island` for rectangles, optional `--finish` wall loop |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` or `--dwell` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
 
@@ -118,13 +153,25 @@ both kinds. A circular pocket walks concentric rings from radius `width / 2 − 
 inward, one `stepover` per ring, closes every ring at the cutting feed, advances
 between rings without retracting and finishes at the centre. A circular contour
 cuts one closed outside profile of radius `width / 2 + r` per depth level,
-starting at angle 0 (+X) and running counter-clockwise as 72 linear segments
-that close at the cutting feed; every level enters with a plunge, `--ramp` or
-`--lead` arc and retracts to the clearance plane. `--tabs` is supported on a
-circular contour with the same meaning as on a rectangle. `circle` on a pocket
-accepts no explicit
+starting at angle 0 (+X) and running counter-clockwise as 72 linear segments by
+default or as `G3` arcs with `--arcs arc`, closing at the cutting feed; every
+level enters with a plunge, `--ramp` or `--lead` arc and retracts to the
+clearance plane. `--tabs` is supported on a circular contour with the same
+meaning as on a rectangle. `circle` on a pocket accepts no explicit
 `--strategy` (`operation/strategy-circle`) and no `--island`
 (`operation/strategy-island`); with `rect` both kinds behave exactly as before.
+
+`--arcs linear|arc` selects the interpolation of the closed rings of a `circle`
+contour or pocket and defaults to `linear`. `linear` keeps the 72-chord
+approximation; `arc` emits every ring as counter-clockwise `G3` arcs of at most
+half a circle, so a tab-free turn becomes two half arcs and an interval between
+two tabs becomes as many arcs as its angular span needs. Ring radii, `--stepover`,
+depth levels, feeds, ring transitions, tab lifts, `--ramp` entries and the
+reported loop count are unchanged, and each arc contributes `radius × sweep` to
+the cut length and the cycle time. `--arcs arc` is valid only together with
+`--shape circle` on `contour` or `pocket`; another kind or shape and an unknown
+value report `operation/invalid`. Without the option the output stays
+byte-identical.
 
 `--path x,y;x,y;...` is only used by `engrave` and lists the polyline vertices in
 order. Every depth level repeats the whole polyline at its own Z. The cutter
@@ -211,8 +258,9 @@ every depth level; a circular pocket reports `shape` (`"circle"`) and
 `loopCount`, the number of closed clearing rings; a circular contour reports
 `shape` (`"circle"`) and no `loopCount`. A wall finish loop is not
 counted in `loopCount`, but its moves are included in `segments`, `cutLength`
-and the cycle time. A contour lead arc is a move of kind `arc` carrying an
-`arc` object with its `centre` and `clockwise` flag; linear moves omit the
+and the cycle time. A contour lead arc and every ring of an `--arcs arc` contour
+or pocket are moves of kind `arc` carrying an `arc` object with its `centre` and
+`clockwise` flag; linear moves omit the
 field. Raster operations keep the previous shape and add no
 fields. A drill `dwell` is a bottom-of-hole pause and does not add a move or
 cycle time.
@@ -242,9 +290,10 @@ open-cam gcode <file> [--out program.nc]
 ```
 
 Prints the G-code program and optionally writes it. The program is
-deterministic; repeated runs are byte-identical. Only contour lead arcs are
-interpolated: they render as `G2`/`G3` with absolute end coordinates and `I`/`J`
-centre offsets; every other move stays `G0` or `G1`.
+deterministic; repeated runs are byte-identical. Only contour lead arcs and the
+rings of an `--arcs arc` contour or pocket are interpolated: they render as
+`G2`/`G3` with absolute end coordinates and `I`/`J` centre offsets; every other
+move stays `G0` or `G1`.
 
 ## export
 
@@ -292,6 +341,11 @@ open-cam operation add bracket.ocam --id bore --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --shape circle --x 20 --y 20 --width 40 --height 40
 open-cam operation add bracket.ocam --id boss --kind contour --tool t6 \
     --depth 8 --stepdown 2 --shape circle --x 20 --y 20 --width 40 --height 40
+open-cam operation add bracket.ocam --id bore-arc --kind pocket --tool t6 \
+    --depth 3 --stepdown 1 --shape circle --arcs arc --x 20 --y 20 --width 40 --height 40
+open-cam tool list bracket.ocam
+open-cam tool export bracket.ocam --out shop-tools.json
+open-cam tool import bracket.ocam --from shop-tools.json
 open-cam operation add bracket.ocam --id logo --kind engrave --tool t2 \
     --depth 0.5 --stepdown 0.25 --path "10,10;40,10;40,30;70,30"
 open-cam operation add bracket.ocam --id border --kind engrave --tool t2 \
