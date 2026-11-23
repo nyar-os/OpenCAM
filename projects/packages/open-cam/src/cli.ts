@@ -543,6 +543,29 @@ operationCommand
         }),
     );
 
+operationCommand
+    .command('reorder', 'cli.cmd.operation-reorder')
+    .option('--id <id>', 'cli.opt.id')
+    .option('--to <index>', 'cli.opt.to')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'operation reorder <file>');
+            await withDocument(file, async (document) => {
+                const to = integer(ctx, options, '--to');
+                if (to === undefined) {
+                    fail(ctx, 'cli/missing-option', 'cli.error.missingOption', { option: '--to' });
+                }
+                print(
+                    await document.reorderOperation({
+                        id: required(ctx, options, '--id'),
+                        to,
+                    }),
+                );
+            });
+            return 0;
+        }),
+    );
+
 cli
     .command('validate', 'cli.cmd.validate')
     .actionCtx(async (options, _args, ctx) =>
