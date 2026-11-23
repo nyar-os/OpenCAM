@@ -40,6 +40,7 @@ mod gcode;
 mod library;
 mod model;
 mod operation_list;
+mod operation_update;
 mod sequence;
 mod session;
 mod toolpath;
@@ -61,6 +62,7 @@ pub use crate::{
         TabSettings, Tool, UNITS, VERSION,
     },
     operation_list::{OperationListEntry, OperationListReport, list as operation_list},
+    operation_update::{OperationUpdate, update as operation_update},
     sequence::{SequenceEntry, SequenceGroup, SequenceReport, plan as sequence_plan, reorder as sequence_reorder},
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
@@ -94,6 +96,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "sequence": "supported",
     "feeds": "supported",
     "operationList": "supported",
+    "operationUpdate": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"

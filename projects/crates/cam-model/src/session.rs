@@ -22,6 +22,7 @@ use crate::{
     library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
     operation_list::{self, OperationListReport},
+    operation_update::{self, OperationUpdate},
     sequence::{self, SequenceReport},
     toolpath::{self, ToolpathReport},
     validate::{self, ValidationReport},
@@ -311,6 +312,17 @@ impl OpenCam {
     /// fields in document order and the kinematic motion time of each operation.
     pub fn operation_list(&self) -> Result<OperationListReport, CamError> {
         operation_list::list(self.document()?)
+    }
+
+    /// Applies a partial update to one operation and saves the document.
+    ///
+    /// Only the supplied fields change. The whole candidate document is
+    /// validated with the same rules as `add` and `save` before it is written,
+    /// so a rejected update leaves the document and its revision untouched.
+    pub fn update_operation(&mut self, request: &OperationUpdate) -> Result<DocumentSummary, CamError> {
+        let document = self.document()?.clone();
+        let candidate = operation_update::update(&document, request)?;
+        self.persist(candidate)
     }
 
     /// Validates the open document.
