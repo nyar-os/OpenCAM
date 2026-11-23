@@ -26,6 +26,8 @@ export interface NativeBinding {
     tool_import(path: string, source: string): string;
     operation_add(path: string, requestJson: string): string;
     operation_remove(path: string, requestJson: string): string;
+    operation_list(path: string): string;
+    operation_update(path: string, requestJson: string): string;
     validate(path: string): string;
     toolpaths(path: string): string;
     estimate(path: string, requestJson?: string): string;

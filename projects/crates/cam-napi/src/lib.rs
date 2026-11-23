@@ -15,7 +15,7 @@ use std::path::Path;
 
 use cam_model::{
     CamError, EstimateRequest, ExportFormat, FeedsRequest, Hole, HolePattern, Island, LeadSettings, OpenCam, Operation,
-    OperationKind, PathPoint, PostOptions, Stock, TabSettings, Tool,
+    OperationKind, OperationUpdate, PathPoint, PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -71,6 +71,14 @@ fn optional_u32(request: &Value, name: &str) -> Result<Option<u32>> {
             .and_then(|number| u32::try_from(number).ok())
             .map(Some)
             .ok_or_else(|| argument_error(&format!("`{name}` must be a non-negative integer"))),
+    }
+}
+
+fn optional_string_field(request: &Value, name: &str) -> Result<Option<String>> {
+    match request.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(argument_error(&format!("`{name}` must be a string"))),
     }
 }
 
@@ -340,6 +348,37 @@ fn operation_remove(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &summary)
 }
 
+/// Lists every operation of a document without changing it.
+#[function]
+fn operation_list(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.operation_list().map_err(fail)?;
+    respond(&ctx, &report)
+}
+
+/// Applies a partial update to one operation and saves the document.
+#[function]
+fn operation_update(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let request = object(&ctx, 1)?;
+    let update = OperationUpdate {
+        id: text_field(&request, "id")?,
+        tool: optional_string_field(&request, "tool")?,
+        depth: number_field(&request, "depth")?,
+        stepdown: number_field(&request, "stepdown")?,
+        stepover: number_field(&request, "stepover")?,
+        name: optional_string_field(&request, "name")?,
+        peck: number_field(&request, "peck")?,
+        dwell: number_field(&request, "dwell")?,
+    };
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let summary = session.update_operation(&update).map_err(fail)?;
+    respond(&ctx, &summary)
+}
+
 /// Validates a document.
 #[function]
 fn validate(ctx: CallContext) -> Result<JsValue> {
@@ -462,6 +501,8 @@ register_module![
     tool_import,
     operation_add,
     operation_remove,
+    operation_list,
+    operation_update,
     validate,
     toolpaths,
     estimate,

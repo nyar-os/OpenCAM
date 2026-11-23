@@ -16,7 +16,9 @@ import type {
     ExportReport,
     FeedsReport,
     FeedsRequest,
+    OperationListReport,
     OperationRequest,
+    OperationUpdateRequest,
     PostOptions,
     Report,
     SequenceReport,
@@ -133,6 +135,18 @@ export function addOperation(path: string, request: OperationRequest): DocumentS
 export function removeOperation(path: string, id: string): DocumentSummary {
     return decode<DocumentSummary>(() =>
         binding('operation.remove').operation_remove(path, JSON.stringify({ id })),
+    );
+}
+
+/** Lists every operation of a document without changing it. */
+export function listOperations(path: string): OperationListReport {
+    return decode<OperationListReport>(() => binding('operation.list').operation_list(path));
+}
+
+/** Applies a partial update to one operation and returns the updated summary. */
+export function updateOperation(path: string, request: OperationUpdateRequest): DocumentSummary {
+    return decode<DocumentSummary>(() =>
+        binding('operation.update').operation_update(path, JSON.stringify(request)),
     );
 }
 

@@ -15,7 +15,9 @@ import type {
     EstimateRequest,
     ExportFormat,
     ExportReport,
+    OperationListReport,
     OperationRequest,
+    OperationUpdateRequest,
     PostOptions,
     Report,
     SequenceReport,
@@ -125,6 +127,19 @@ export class CamDocument {
     async removeOperation(id: string): Promise<DocumentSummary> {
         this.assertOpen();
         this.state = service.removeOperation(this.state.path, id);
+        return this.state;
+    }
+
+    /** Lists every operation of the document without changing it. */
+    async listOperations(): Promise<OperationListReport> {
+        this.assertOpen();
+        return service.listOperations(this.state.path);
+    }
+
+    /** Applies a partial update to one operation. */
+    async updateOperation(request: OperationUpdateRequest): Promise<DocumentSummary> {
+        this.assertOpen();
+        this.state = service.updateOperation(this.state.path, request);
         return this.state;
     }
 

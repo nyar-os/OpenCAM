@@ -216,6 +216,61 @@ export interface Operation {
     readonly arcs?: ArcMode;
 }
 
+/** One operation row of `listOperations()`. */
+export interface OperationListEntry {
+    readonly id: string;
+    readonly kind: OperationKind;
+    readonly tool: string;
+    readonly name: string;
+    /** Total depth below the stock top, in millimetres. */
+    readonly depth: number;
+    /** Maximum depth removed per Z pass, in millimetres. */
+    readonly stepdown: number;
+    /** Raster spacing; `null` selects the kind default. */
+    readonly stepover: number | null;
+    /** Effective pocket strategy; `null` for every kind without one. */
+    readonly strategy: PocketStrategy | null;
+    /** Effective contour or pocket shape; `null` for every other kind. */
+    readonly shape: PocketShape | null;
+    /** Number of drilled holes, including a generated pattern; `0` otherwise. */
+    readonly holes: number;
+    /** Number of rectangular islands a pocket clears around; `0` otherwise. */
+    readonly islandCount: number;
+    /** Whether the pocket cuts its wall finish loop; `false` otherwise. */
+    readonly finish: boolean;
+    /** Kinematic motion time of the operation in seconds, without tool-change overhead. */
+    readonly estimatedSeconds: number;
+}
+
+/** Read-only operation list returned by `listOperations()`. */
+export interface OperationListReport {
+    readonly format: string;
+    readonly version: number;
+    readonly units: string;
+    readonly operationCount: number;
+    /** Number of distinct tools the operations reference. */
+    readonly usedTools: number;
+    readonly operations: readonly OperationListEntry[];
+}
+
+/**
+ * Request of `updateOperation()`; only the supplied fields change.
+ *
+ * At least one field besides `id` is required. `peck` and `dwell` are accepted
+ * only by a `drill` and cannot be combined. The update never changes the kind,
+ * geometry, holes, islands, tabs, lead, ramp or arcs.
+ */
+export interface OperationUpdateRequest {
+    readonly id: string;
+    readonly tool?: string;
+    readonly depth?: number;
+    readonly stepdown?: number;
+    readonly stepover?: number;
+    readonly name?: string;
+    readonly peck?: number;
+    readonly dwell?: number;
+}
+
 /** Summary of one document as written to disk. */
 export interface DocumentSummary {
     readonly id: string;
