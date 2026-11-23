@@ -19,6 +19,9 @@ export type PocketStrategy = 'raster' | 'spiral';
 /** Contour or pocket outline: an axis-aligned rectangle (default) or a circle. */
 export type PocketShape = 'rect' | 'circle';
 
+/** Interpolation of the closed rings of a circular contour or pocket. */
+export type ArcMode = 'linear' | 'arc';
+
 /** Export formats `exportDocument()` can write. */
 export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md';
 
@@ -46,6 +49,26 @@ export interface Tool {
     readonly feed: number;
     /** Plunge feed in millimetres per minute. */
     readonly plungeFeed: number;
+}
+
+/** One declared tool with the operations that reference it. */
+export interface ToolEntry extends Tool {
+    /** Identifiers of the operations that use this tool, in document order. */
+    readonly usedBy: readonly string[];
+    /** `true` when at least one operation references the tool. */
+    readonly used: boolean;
+}
+
+/** Tool table of one document, as returned by `listTools()`. */
+export interface ToolTableReport {
+    readonly format: string;
+    readonly version: number;
+    readonly units: string;
+    /** Number of declared tools. */
+    readonly toolCount: number;
+    /** Number of tools no operation references. */
+    readonly unusedCount: number;
+    readonly tools: readonly ToolEntry[];
 }
 
 /** One hole centre of a drilling operation. */
@@ -128,6 +151,8 @@ export interface Operation {
     readonly finish?: boolean;
     /** Tangential lead arcs of a contour operation; absent plunges vertically. */
     readonly lead?: LeadSettings;
+    /** Ring interpolation of a circular contour or pocket; absent means `linear` (72 chords). */
+    readonly arcs?: ArcMode;
 }
 
 /** Summary of one document as written to disk. */
@@ -273,6 +298,26 @@ export interface ExportReport {
     readonly bytes: number;
 }
 
+/** Result of `exportTools()`. */
+export interface ToolLibraryReport {
+    readonly format: 'tools';
+    readonly path: string;
+    readonly files: readonly string[];
+    readonly bytes: number;
+}
+
+/** Result of `importTools()`. */
+export interface ToolImportReport {
+    readonly format: string;
+    readonly version: number;
+    /** Library file that was read. */
+    readonly path: string;
+    /** Tool ids that were added, in library order. */
+    readonly imported: readonly string[];
+    /** Number of tools the document declares after the import. */
+    readonly toolCount: number;
+}
+
 /** Full report returned by `report()`. */
 export interface Report {
     readonly format: string;
@@ -348,6 +393,8 @@ export interface OperationRequest {
     readonly finish?: boolean;
     /** Tangential lead arcs of a contour operation; omitted plunges vertically. Cannot be combined with `ramp`. */
     readonly lead?: LeadSettings;
+    /** Ring interpolation of a circular contour or pocket; `linear` when omitted. */
+    readonly arcs?: ArcMode;
 }
 
 /** Disclosure level of one capability entry. */

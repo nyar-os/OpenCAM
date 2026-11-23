@@ -173,6 +173,38 @@ fn tool_remove(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &summary)
 }
 
+/// Lists every declared tool with the operations that use it.
+#[function]
+fn tool_list(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.tool_table().map_err(fail)?;
+    respond(&ctx, &report)
+}
+
+/// Writes the tool table of a document as a portable `open-cam-tools` library.
+#[function]
+fn tool_export(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let target = text(&ctx, 1)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.write_tool_library(Path::new(&target)).map_err(fail)?;
+    respond(&ctx, &report)
+}
+
+/// Merges a portable tool library into a document and saves it.
+#[function]
+fn tool_import(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let source = text(&ctx, 1)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.import_tool_library(Path::new(&source)).map_err(fail)?;
+    respond(&ctx, &report)
+}
+
 /// Adds a machining operation and saves the document.
 #[function]
 fn operation_add(ctx: CallContext) -> Result<JsValue> {
@@ -202,6 +234,11 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
         None | Some(Value::Null) => None,
         Some(Value::String(value)) => Some(value.clone()),
         Some(_) => return Err(argument_error("`shape` must be a string")),
+    };
+    operation.arcs = match request.get("arcs") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => return Err(argument_error("`arcs` must be a string")),
     };
     operation.closed = match request.get("closed") {
         None | Some(Value::Null) => false,
@@ -357,6 +394,9 @@ register_module![
     stock_set,
     tool_add,
     tool_remove,
+    tool_list,
+    tool_export,
+    tool_import,
     operation_add,
     operation_remove,
     validate,

@@ -25,6 +25,7 @@ export const errorCodes = [
     'tool/duplicate-id',
     'tool/unknown-id',
     'tool/in-use',
+    'tool/library-invalid',
     'operation/invalid',
     'operation/duplicate-id',
     'operation/unknown-id',

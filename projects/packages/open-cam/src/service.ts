@@ -17,7 +17,10 @@ import type {
     OperationRequest,
     Report,
     StockRequest,
+    ToolImportReport,
+    ToolLibraryReport,
     ToolRequest,
+    ToolTableReport,
     ToolpathReport,
     ValidationReport,
 } from './types.js';
@@ -100,6 +103,21 @@ export function addTool(path: string, request: ToolRequest): DocumentSummary {
 /** Removes an unused tool and returns the updated summary. */
 export function removeTool(path: string, id: string): DocumentSummary {
     return decode<DocumentSummary>(() => binding('tool.remove').tool_remove(path, JSON.stringify({ id })));
+}
+
+/** Lists every declared tool with the operations that use it. */
+export function listTools(path: string): ToolTableReport {
+    return decode<ToolTableReport>(() => binding('tool.list').tool_list(path));
+}
+
+/** Writes the tool table as a portable library file. */
+export function exportTools(path: string, target: string): ToolLibraryReport {
+    return decode<ToolLibraryReport>(() => binding('tool.export').tool_export(path, target));
+}
+
+/** Merges a portable tool library into the document. */
+export function importTools(path: string, source: string): ToolImportReport {
+    return decode<ToolImportReport>(() => binding('tool.import').tool_import(path, source));
 }
 
 /** Adds a machining operation and returns the updated summary. */

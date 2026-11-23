@@ -19,7 +19,10 @@ import type {
     Report,
     Stock,
     StockRequest,
+    ToolImportReport,
+    ToolLibraryReport,
     ToolRequest,
+    ToolTableReport,
     ToolpathReport,
     ValidationReport,
 } from './types.js';
@@ -87,6 +90,26 @@ export class CamDocument {
         this.assertOpen();
         this.state = service.removeTool(this.state.path, id);
         return this.state;
+    }
+
+    /** Lists every declared tool with the operations that use it. */
+    async listTools(): Promise<ToolTableReport> {
+        this.assertOpen();
+        return service.listTools(this.state.path);
+    }
+
+    /** Writes the tool table as a portable library file. */
+    async exportTools(target: string): Promise<ToolLibraryReport> {
+        this.assertOpen();
+        return service.exportTools(this.state.path, target);
+    }
+
+    /** Merges a portable tool library into the document. */
+    async importTools(source: string): Promise<ToolImportReport> {
+        this.assertOpen();
+        const report = service.importTools(this.state.path, source);
+        this.state = service.open(this.state.path);
+        return report;
     }
 
     /** Adds a machining operation. */
