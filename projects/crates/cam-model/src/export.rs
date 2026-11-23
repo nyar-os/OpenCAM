@@ -40,6 +40,7 @@ pub fn segments_csv(report: &ToolpathReport) -> String {
                     crate::toolpath::MoveKind::Rapid => "rapid",
                     crate::toolpath::MoveKind::Plunge => "plunge",
                     crate::toolpath::MoveKind::Cut => "cut",
+                    crate::toolpath::MoveKind::Arc => "arc",
                 },
                 number(segment.from.x),
                 number(segment.from.y),

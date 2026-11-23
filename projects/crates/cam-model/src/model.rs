@@ -236,6 +236,44 @@ impl TabSettings {
     }
 }
 
+/// Tangential arc lead-in and lead-out of a `contour` operation.
+///
+/// Each Z level no longer starts with a vertical plunge at the profile start
+/// and ends with a direct retract. The cutter plunges at the point
+/// diametrically opposite the start on a circle of `radius`, cuts one half
+/// circle into the profile start, arrives exactly along the profile tangent,
+/// runs the normal level loop and leaves through the mirror half circle at the
+/// closing point before retracting. `direction` is the rotation of both arcs:
+/// `"cw"` emits `G2`, `"ccw"` emits `G3`. The engine cuts contours
+/// counter-clockwise, so `"cw"` keeps both lead arcs outside the profile.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeadSettings {
+    /// Radius of both lead arcs, in millimetres.
+    pub radius: f64,
+    /// Arc rotation direction: `"cw"` or `"ccw"`.
+    ///
+    /// Kept as a string so an unknown or missing value is reported as
+    /// `operation/invalid` by validation instead of a parse error.
+    #[serde(default)]
+    pub direction: String,
+}
+
+impl LeadSettings {
+    /// Creates lead settings from a millimetre radius and a direction string.
+    pub fn new(radius: f64, direction: impl Into<String>) -> Self {
+        Self { radius, direction: direction.into() }
+    }
+
+    /// Whether both lead arcs run clockwise (`G2`).
+    ///
+    /// Validation rejects every direction but `cw` and `ccw`, so anything that
+    /// reaches the generator as non-`ccw` is `cw`.
+    pub fn is_clockwise(&self) -> bool {
+        self.direction != "ccw"
+    }
+}
+
 /// One machining operation.
 ///
 /// `stepdown` is the maximum depth of one Z pass. `stepover` defaults to 70 % of
@@ -243,7 +281,7 @@ impl TabSettings {
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
 /// `peck` and `dwell` only by `drill`, `path` only by `engrave`, `closed` only
 /// by `engrave`, `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
-/// `engrave`, and `finish` only by `pocket`. `strategy` selects the rectangle
+/// `engrave`, `lead` only by `contour`, and `finish` only by `pocket`. `strategy` selects the rectangle
 /// clearing pattern: `raster` (the default) or `spiral` (concentric rectangles).
 /// `shape` selects the `contour` or `pocket` outline: `rect` (the default) or
 /// `circle`, which uses `width` as the diameter, needs `height` equal to
@@ -340,6 +378,16 @@ pub struct Operation {
     /// islands. `None` and `false` keep the clearing output unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finish: Option<bool>,
+    /// Tangential arc lead-in and lead-out of a `contour` operation.
+    ///
+    /// When set, every Z level replaces the vertical entry plunge and the
+    /// closing retract with a half-circle arc of `lead.radius` that joins the
+    /// profile exactly along its tangent at the start and closing point. Only
+    /// `contour` accepts a lead; `None` keeps the vertical plunge and the
+    /// direct retract, so existing output is unchanged. A lead cannot be
+    /// combined with `ramp`, which replaces the same entry plunge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead: Option<LeadSettings>,
 }
 
 impl Operation {
@@ -368,6 +416,7 @@ impl Operation {
             shape: None,
             tabs: None,
             finish: None,
+            lead: None,
         }
     }
 }

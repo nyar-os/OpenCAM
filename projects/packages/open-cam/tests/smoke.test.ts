@@ -121,3 +121,78 @@ test('a pocket clears around islands and rejects a rejected island without savin
         fs.rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test('a contour with lead arcs reports arc moves and renders G2', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-lead-'));
+    try {
+        try {
+            await session.capabilities();
+        } catch (error) {
+            if (isOpenCAMError(error) && error.code === 'capability/not-implemented') {
+                t.skip('the native addon is not installed');
+                return;
+            }
+            throw error;
+        }
+
+        const capabilities = await session.capabilities();
+        assert.equal(capabilities.operations.contourLead, 'supported');
+
+        const file = path.join(fs.mkdtempSync(path.join(directory, 'job-')), 'part.ocam');
+        const document = await session.create(file);
+        await document.setStock({ width: 120, depth: 100, height: 10 });
+        await document.addTool({ id: 't6', diameter: 6, spindle: 12000, feed: 1200 });
+        await document.addOperation({
+            id: 'profile',
+            kind: 'contour',
+            tool: 't6',
+            depth: 2,
+            stepdown: 2,
+            x: 20,
+            y: 20,
+            width: 40,
+            height: 20,
+            lead: { radius: 5, direction: 'cw' },
+        });
+
+        const report = await document.toolpaths();
+        const arcs = (report.operations[0] ?? assert.fail('missing operation')).segments.filter((segment) => segment.kind === 'arc');
+        assert.equal(arcs.length, 2);
+        const leadIn = arcs[0] ?? assert.fail('missing lead-in arc');
+        assert.ok(leadIn.arc);
+        assert.equal(leadIn.arc.clockwise, true);
+        assert.equal(leadIn.to.x, 17);
+        assert.equal(leadIn.to.y, 17);
+        assert.equal(leadIn.arc.centre.x, 17);
+        assert.equal(leadIn.arc.centre.y, 12);
+
+        const program = await document.gcode();
+        assert.ok(program.includes('G2 X17 Y17 Z8 I0 J5 F1200'));
+        assert.ok(program.includes('G2 X7 Y17 Z8 I-5 J0 F1200'));
+
+        await assert.rejects(
+            document.addOperation({
+                id: 'bad',
+                kind: 'contour',
+                tool: 't6',
+                depth: 2,
+                stepdown: 2,
+                x: 20,
+                y: 20,
+                width: 40,
+                height: 20,
+                lead: { radius: 0, direction: 'cw' },
+            }),
+            (error: unknown) => {
+                assert.ok(isOpenCAMError(error));
+                assert.equal(error.code, 'operation/invalid');
+                return true;
+            },
+        );
+        assert.equal((await document.validate()).ok, true);
+    } finally {
+        await session.dispose();
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});

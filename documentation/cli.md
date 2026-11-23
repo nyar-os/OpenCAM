@@ -59,13 +59,14 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--island <x,y,w,h>]...
                       [--path <x,y;x,y>]
                       [--tabs <count,width,height>]
+                      [--lead <radius,cw|ccw>]
                       [--closed] [--finish]
 ```
 
 | Kind | Geometry |
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
-| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; `--shape circle` cuts a circular outside profile |
+| `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; optional `--lead` tangential entry and exit arcs; `--shape circle` cuts a circular outside profile |
 | `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings, repeatable `--island` for rectangles, optional `--finish` wall loop |
 | `drill` | `--holes "x,y;x,y"`, optional `--peck` or `--dwell` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
@@ -117,9 +118,10 @@ inward, one `stepover` per ring, closes every ring at the cutting feed, advances
 between rings without retracting and finishes at the centre. A circular contour
 cuts one closed outside profile of radius `width / 2 + r` per depth level,
 starting at angle 0 (+X) and running counter-clockwise as 72 linear segments
-that close at the cutting feed; every level enters with a plunge or `--ramp` and
-retracts to the clearance plane. `--tabs` is supported on a circular contour
-with the same meaning as on a rectangle. `circle` on a pocket accepts no explicit
+that close at the cutting feed; every level enters with a plunge, `--ramp` or
+`--lead` arc and retracts to the clearance plane. `--tabs` is supported on a
+circular contour with the same meaning as on a rectangle. `circle` on a pocket
+accepts no explicit
 `--strategy` (`operation/strategy-circle`) and no `--island`
 (`operation/strategy-island`); with `rect` both kinds behave exactly as before.
 
@@ -151,6 +153,22 @@ not positive, when a rectangle's `height` exceeds `--depth`, when a rectangle's
 `count × width` is not below the profile perimeter `2 × (width + height)`, or when
 a circle's `count × width` is not below the tool-centre circumference
 `2 × pi × (width / 2 + r)`.
+
+`--lead radius,cw|ccw` is only used by a `contour` and replaces the vertical
+entry plunge and the direct closing retract of every Z level with tangential
+half-circle arcs. The cutter rapids to the point `2 × radius` away from the
+profile start along the normal of the first edge (outward for `cw`, profile
+side for `ccw`), plunges there and cuts one half circle that joins the start
+exactly along the profile tangent;
+after the level loop closes it leaves through the mirror half circle at the
+closing point before retracting. `cw` renders `G2` and `ccw` renders `G3`; for
+the counter-clockwise contour `cw` keeps both arcs outside the profile. Each
+arc runs at the cutting feed, spans `pi × radius` and counts toward the
+reported cut length and cycle time. The value must be a `radius,cw|ccw` pair;
+a radius that is not finite and greater than zero or an unknown direction
+reports `operation/invalid`, as does `--lead` on any other kind or together
+with `--ramp`, which replaces the same entry plunge. Without `--lead` the
+vertical plunge and direct retract are emitted exactly as before.
 
 `--finish` is a flag for `pocket` that adds one extra closed loop along the
 final wall after the clearing moves of every depth level. The loop follows the
@@ -192,7 +210,9 @@ every depth level; a circular pocket reports `shape` (`"circle"`) and
 `loopCount`, the number of closed clearing rings; a circular contour reports
 `shape` (`"circle"`) and no `loopCount`. A wall finish loop is not
 counted in `loopCount`, but its moves are included in `segments`, `cutLength`
-and the cycle time. Raster operations keep the previous shape and add no
+and the cycle time. A contour lead arc is a move of kind `arc` carrying an
+`arc` object with its `centre` and `clockwise` flag; linear moves omit the
+field. Raster operations keep the previous shape and add no
 fields. A drill `dwell` is a bottom-of-hole pause and does not add a move or
 cycle time.
 
@@ -203,7 +223,9 @@ open-cam gcode <file> [--out program.nc]
 ```
 
 Prints the G-code program and optionally writes it. The program is
-deterministic; repeated runs are byte-identical.
+deterministic; repeated runs are byte-identical. Only contour lead arcs are
+interpolated: they render as `G2`/`G3` with absolute end coordinates and `I`/`J`
+centre offsets; every other move stays `G0` or `G1`.
 
 ## export
 
@@ -262,6 +284,9 @@ open-cam operation add bracket.ocam --id floor --kind pocket --tool t6 \
 open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \
     --depth 8 --stepdown 2 --x 20 --y 20 --width 60 --height 40 \
     --tabs 4,6,1
+open-cam operation add bracket.ocam --id edge --kind contour --tool t6 \
+    --depth 2 --stepdown 2 --x 20 --y 20 --width 60 --height 40 \
+    --lead 5,cw
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam
 open-cam gcode bracket.ocam --out bracket.nc

@@ -244,6 +244,38 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` uses tabs but only `contour` supports them", operation.id),
         ));
     }
+    if let Some(lead) = &operation.lead {
+        if !positive(lead.radius) {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` lead radius must be finite and greater than zero", operation.id),
+            ));
+        }
+        if !matches!(lead.direction.as_str(), "cw" | "ccw") {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!(
+                    "operation `{}` lead direction `{}` is unknown; only `cw` or `ccw` is supported",
+                    operation.id, lead.direction
+                ),
+            ));
+        }
+        if operation.kind != OperationKind::Contour {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!("operation `{}` uses lead but only `contour` supports it", operation.id),
+            ));
+        }
+        if operation.ramp.is_some() {
+            issues.push(Issue::error(
+                "operation/invalid",
+                format!(
+                    "operation `{}` combines lead with ramp, but both replace the level entry plunge; remove `ramp` or `lead`",
+                    operation.id
+                ),
+            ));
+        }
+    }
     if operation.closed && operation.kind != OperationKind::Engrave {
         issues.push(Issue::error(
             "operation/invalid",

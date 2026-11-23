@@ -69,13 +69,17 @@ fn render_with(document: &CamDocument, report: &ToolpathReport) -> String {
         }
         else {
             for segment in &path.segments {
-                let command = match segment.kind {
-                    MoveKind::Rapid => "G0",
-                    MoveKind::Plunge | MoveKind::Cut => "G1",
-                };
                 let feed = if segment.kind == MoveKind::Rapid { String::new() } else { format!(" F{}", number(segment.feed)) };
+                let (command, arc) = match &segment.arc {
+                    Some(arc) => {
+                        let centre =
+                            format!(" I{} J{}", number(arc.centre.x - segment.from.x), number(arc.centre.y - segment.from.y));
+                        (if arc.clockwise { "G2" } else { "G3" }, centre)
+                    }
+                    None => (if segment.kind == MoveKind::Rapid { "G0" } else { "G1" }, String::new()),
+                };
                 lines.push(format!(
-                    "{command} X{} Y{} Z{}{feed}",
+                    "{command} X{} Y{} Z{}{arc}{feed}",
                     number(segment.to.x),
                     number(segment.to.y),
                     number(segment.to.z)

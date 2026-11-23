@@ -16,6 +16,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `contour` outside rectangular profile, cutter-radius offset | ✅ supported |
 | `contour` outside circular profile (`shape: "circle"`) | ✅ supported |
 | `contour` holding tabs (`tabs`, rectangle or circle) | ✅ supported |
+| `contour` tangential lead-in / lead-out arcs (`lead`, rectangle or circle) | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
 | `pocket` islands (rectangular) | ✅ supported |
@@ -155,7 +156,25 @@ The machine-readable version is printed by `open-cam capabilities` and by
     supported: a pocket with `finish: true` and islands reports
     `operation/invalid`. `finish: false` or an omitted `finish` keeps the
     clearing output byte-identical.
-13. **Metrics.** Cutting length and time use the cutting feed; rapid length and
+13. **Lead-in / lead-out arcs.** `lead` replaces the vertical entry plunge and
+    the direct closing retract of every `contour` Z level with tangential
+    half-circle arcs of radius `lead.radius`. The cutter rapids to the point
+    diametrically opposite the profile start, plunges there, cuts one half
+    circle and joins the profile exactly along its tangent at the start point;
+    after the level loop closes it leaves through the mirror half circle at the
+    closing point before retracting. The counter-clockwise rectangular loop
+    touches the bottom edge on entry and the left edge on exit, so the two arcs
+    sit on different normals and never retrace each other; a circular contour
+    has one tangent at the start, so both arcs share their circle and cover
+    opposite halves. `direction` is the rotation of both arcs: `cw` renders
+    `G2`, `ccw` renders `G3`; for the counter-clockwise contour `cw` keeps the
+    arcs outside the profile. Each arc is an `arc` move at the cutting feed
+    carrying its centre and direction in the report, spans `pi × radius` and
+    counts toward `cutLength` and the cycle time. Only `contour` accepts a
+    lead, and it cannot be combined with `ramp`, which replaces the same entry
+    plunge. An omitted `lead` keeps the vertical plunge and the direct retract,
+    so existing output is byte-identical.
+14. **Metrics.** Cutting length and time use the cutting feed; rapid length and
     time use a fixed 8000 mm/min traverse. Cycle time is the sum of both. A
     drill `dwell` is machine time and is not included.
 
@@ -168,6 +187,10 @@ Each operation emits a comment, `T<n> M6`, `S<spindle> M3`, the moves or cycle,
 `safe_z` is `stock.height + 5` mm. Coordinates render with at most three decimals
 and `-0` is normalised to `0`.
 
+Contour lead arcs are the only interpolation the writer emits as `G2`/`G3`: the
+absolute end coordinates plus `I`/`J` centre offsets from the arc start in the
+XY plane, at the cutting feed. Every other move stays `G0` or `G1`.
+
 ## Validation
 
 | Code | Meaning |
@@ -175,7 +198,7 @@ and `-0` is normalised to `0`.
 | `document/format`, `document/version`, `document/units` | the file is not an OpenCAM millimetre document |
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck` |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish`, `lead` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `lead` is valid only for `contour`, needs a finite positive `radius` and a `direction` of `cw` or `ccw`, and is rejected together with `ramp`; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -202,19 +225,20 @@ outside the stock) do not make `ok` false.
 | `tests/engrave.rs` | polyline plunge and cut count, cut length, multi-level stepdown, closed square perimeter and extra move, open/closed move difference, closed first/last coincidence rejection, non-engrave `closed` rejection, default document byte identity, validation codes, G-code, empty `path` serialization |
 | `tests/tabs.rs` | tab lift and plunge counts per level, tab positions and heights, validation codes, no-tab output identity, G-code |
 | `tests/ramp.rs` | no-ramp byte identity, non-vertical first move, ramp endpoint at the level depth and no overcut, cut length increase, pocket entry, invalid kind and value, determinism and round trip |
+| `tests/lead.rs` | tangential lead-in/lead-out geometry, arc centre, radius and half-circle length, `G2`/`G3` lines with `I`/`J` centre offsets, mirrored `ccw` arcs, circular arcs covering opposite halves, cut length, tabs and stepdown combination, invalid kind, radius, direction and ramp rejection, no-lead byte identity, determinism and round trip |
 | `tests/finish.rs` | no-finish byte identity, one wall loop per level for raster, spiral and circular pockets, wall clearance and depth, invalid kinds and island rejection, cut length and loop count, determinism and round trip |
 | `tests/dwell.rs` | `G82`/`P` and `G80` per hole, no `G4`, no-dwell byte identity, peck and non-drill rejection, invalid values, unchanged toolpath moves, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
-| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors and island pocket reporting (skipped without the addon) |
+| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting and contour lead arcs (skipped without the addon) |
 
 ## Limitations
 
 - Rasters are axis-aligned and spiral pockets are concentric rectangles; there
   is no trochoidal, adaptive or arc-following strategy. Circular pockets and
   circular contours are approximated by 72 linear segments per ring, not by
-  `G2`/`G3` arcs.
+  `G2`/`G3` arcs; only contour lead arcs are exact `G2`/`G3` half circles.
 - Spiral pockets do not support islands and reject them with
   `operation/strategy-island`; use the raster strategy when islands are needed.
 - Circular pockets support only concentric rings: an explicit `strategy` is
@@ -225,10 +249,17 @@ outside the stock) do not make `ok` false.
   clearing are not supported.
 - Contours are rectangles or full circles with a constant cutter-radius offset;
   a circular contour is approximated by 72 linear segments, not by `G2`/`G3`
-  arcs, and has no lead-in/lead-out moves. Holding tabs are evenly spaced along
-  the path: rectangles measure tab widths along the perimeter, circles along the
-  tool-centre circle. Individual tab positions, tab shapes other than a chord of
-  the path and a separate tab-removal pass are not supported.
+  arcs. Holding tabs are evenly spaced along the path: rectangles measure tab
+  widths along the perimeter, circles along the tool-centre circle. Individual
+  tab positions, tab shapes other than a chord of the path and a separate
+  tab-removal pass are not supported.
+- A contour lead is exactly one tangential half circle at the level start and
+  one at the closing point, always of radius `lead.radius` and spanning a full
+  180°; straight tangent leads, quarter-circle leads, separate lead-in and
+  lead-out radii, lead lengths and lead arcs on `pocket`, `drill` or engrave
+  entries are not supported. A `ccw` lead places the arcs on the profile side
+  of the tangent, and the validator does not check lead arcs against the stock
+  or fixtures.
 - Engraving follows the supplied polyline exactly: no cutter-radius
   compensation, curve fitting, tangency, lead-in or lead-out moves. A closed
   polyline only adds a straight cut back to its first point. Holes and islands

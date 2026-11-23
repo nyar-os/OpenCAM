@@ -19,6 +19,7 @@ import type {
     ExportFormat,
     Hole,
     Island,
+    LeadSettings,
     OperationKind,
     PathPoint,
     PocketShape,
@@ -225,6 +226,16 @@ function parseTabs(raw: string): TabSettings {
     return { count, width, height };
 }
 
+function parseLead(raw: string): LeadSettings {
+    const parts = raw.split(',').map((entry) => entry.trim());
+    const radius = Number(parts[0]);
+    const direction = parts[1];
+    if (parts.length !== 2 || !Number.isFinite(radius) || (direction !== 'cw' && direction !== 'ccw')) {
+        throw new OpenCAMError('cli/invalid-number', `lead \`${raw}\` must be a \`radius,cw|ccw\` pair`);
+    }
+    return { radius, direction };
+}
+
 function print(value: unknown): void {
     console.log(JSON.stringify(value, null, 2));
 }
@@ -357,7 +368,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
             [
                 '--id', '--name', '--kind', '--tool', '--depth', '--stepdown', '--stepover', '--ramp',
                 '--strategy', '--shape', '--x', '--y', '--width', '--height', '--holes', '--peck', '--dwell', '--island',
-                '--path', '--tabs',
+                '--path', '--tabs', '--lead',
             ],
             ['--closed', '--finish'],
             async (document, parsed) => {
@@ -368,6 +379,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                 const strategy = parsed.options.get('--strategy');
                 const shape = parsed.options.get('--shape');
                 const tabs = parsed.options.get('--tabs');
+                const lead = parsed.options.get('--lead');
                 print(
                     await document.addOperation({
                         id,
@@ -391,6 +403,7 @@ async function operationCommand(args: readonly string[]): Promise<number> {
                         peck: number(parsed, '--peck'),
                         dwell: number(parsed, '--dwell'),
                         tabs: tabs === undefined ? undefined : parseTabs(tabs),
+                        lead: lead === undefined ? undefined : parseLead(lead),
                         finish: parsed.flags.has('--finish') ? true : undefined,
                     }),
                 );

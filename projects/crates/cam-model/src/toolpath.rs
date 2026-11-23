@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     CamError,
-    model::{CamDocument, Operation, OperationKind, Point, Stock, TabSettings, Tool},
+    model::{CamDocument, LeadSettings, Operation, OperationKind, Point, Stock, TabSettings, Tool},
     validate,
 };
 
@@ -34,6 +34,18 @@ pub enum MoveKind {
     Plunge,
     /// Cutting move at the tool feed.
     Cut,
+    /// Half-circle arc interpolation at the tool feed.
+    Arc,
+}
+
+/// Arc parameters of one [`MoveKind::Arc`] move.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArcParams {
+    /// Centre of the arc circle.
+    pub centre: Point,
+    /// `true` renders `G2`, `false` renders `G3`.
+    pub clockwise: bool,
 }
 
 /// One machine move.
@@ -46,10 +58,13 @@ pub struct Move {
     pub from: Point,
     /// End point.
     pub to: Point,
-    /// Euclidean length.
+    /// Path length: Euclidean for linear moves, arc length for arcs.
     pub length: f64,
     /// Feed rate in millimetres per minute; [`RAPID_FEED`] for rapid moves.
     pub feed: f64,
+    /// Arc centre and direction; omitted for every non-arc move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<ArcParams>,
 }
 
 /// Generated path of one operation.
@@ -216,14 +231,33 @@ fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
 
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
-        builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
-        match operation.ramp {
-            Some(ramp) => {
-                let end = profile.point(ramp_run, safe_z);
-                ramp_entry(builder, Point::new(corners[0].x, corners[0].y, safe_z), end, z, ramp, tool.plunge_feed, tool.feed);
+        match &operation.lead {
+            Some(lead) => {
+                // The lead-in joins corner 0 tangentially along the bottom edge.
+                let (outer, centre) = lead_arc(corners[0], 1.0, 0.0, lead, z);
+                builder.rapid_to(Point::new(outer.x, outer.y, safe_z));
+                builder.feed_to(Point::new(outer.x, outer.y, z), MoveKind::Plunge, tool.plunge_feed);
+                builder.arc_to(Point::new(corners[0].x, corners[0].y, z), centre, lead.is_clockwise(), tool.feed);
             }
             None => {
-                builder.feed_to(Point::new(corners[0].x, corners[0].y, z), MoveKind::Plunge, tool.plunge_feed);
+                builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
+                match operation.ramp {
+                    Some(ramp) => {
+                        let end = profile.point(ramp_run, safe_z);
+                        ramp_entry(
+                            builder,
+                            Point::new(corners[0].x, corners[0].y, safe_z),
+                            end,
+                            z,
+                            ramp,
+                            tool.plunge_feed,
+                            tool.feed,
+                        );
+                    }
+                    None => {
+                        builder.feed_to(Point::new(corners[0].x, corners[0].y, z), MoveKind::Plunge, tool.plunge_feed);
+                    }
+                }
             }
         }
         match operation.tabs {
@@ -235,8 +269,33 @@ fn contour(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, b
             }
             Some(tabs) => contour_with_tabs(&profile, tabs, z, safe_z, tool, builder),
         }
-        builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
+        match &operation.lead {
+            Some(lead) => {
+                // The lead-out leaves corner 0 tangentially along the closing move.
+                let (outer, centre) = lead_arc(corners[0], 0.0, -1.0, lead, z);
+                builder.arc_to(Point::new(outer.x, outer.y, z), centre, lead.is_clockwise(), tool.feed);
+                builder.rapid_to(Point::new(outer.x, outer.y, safe_z));
+            }
+            None => {
+                builder.rapid_to(Point::new(corners[0].x, corners[0].y, safe_z));
+            }
+        }
     }
+}
+
+/// The outer end and centre of one tangential half-circle lead arc.
+///
+/// The arc has radius `lead.radius`, touches `tangent_point` exactly along the
+/// unit travel direction `(dx, dy)` and spans a half circle: its centre lies
+/// `lead.radius` to the right of the travel direction for a clockwise arc and
+/// to the left for a counter-clockwise one, and the outer end is the point of
+/// the circle diametrically opposite the tangent point. A lead-in runs from the
+/// outer end into the profile, a lead-out from the profile to the outer end.
+fn lead_arc(tangent_point: Point, dx: f64, dy: f64, lead: &LeadSettings, z: f64) -> (Point, Point) {
+    let sign = if lead.is_clockwise() { 1.0 } else { -1.0 };
+    let centre = Point::new(tangent_point.x + sign * dy * lead.radius, tangent_point.y - sign * dx * lead.radius, z);
+    let outer = Point::new(2.0 * centre.x - tangent_point.x, 2.0 * centre.y - tangent_point.y, z);
+    (outer, centre)
 }
 
 /// Circular contour: one closed ring offset outward by the cutter radius.
@@ -263,11 +322,27 @@ fn contour_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z:
 
     for depth in level_depths(operation.depth, operation.stepdown) {
         let z = stock_height - depth;
-        builder.rapid_to(path.start);
-        match operation.ramp {
-            Some(ramp) => ramp_entry(builder, path.start, path.point(ramp_end, safe_z), z, ramp, tool.plunge_feed, tool.feed),
+        match &operation.lead {
+            Some(lead) => {
+                // The ring starts at angle 0 running counter-clockwise, so the
+                // tangent at the start point is +Y for both the lead-in and the
+                // lead-out; the two half circles share the circle but cover
+                // opposite halves, so no arc is retraced.
+                let (outer, centre) = lead_arc(path.start, 0.0, 1.0, lead, z);
+                builder.rapid_to(Point::new(outer.x, outer.y, safe_z));
+                builder.feed_to(Point::new(outer.x, outer.y, z), MoveKind::Plunge, tool.plunge_feed);
+                builder.arc_to(Point::new(path.start.x, path.start.y, z), centre, lead.is_clockwise(), tool.feed);
+            }
             None => {
-                builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Plunge, tool.plunge_feed);
+                builder.rapid_to(path.start);
+                match operation.ramp {
+                    Some(ramp) => {
+                        ramp_entry(builder, path.start, path.point(ramp_end, safe_z), z, ramp, tool.plunge_feed, tool.feed)
+                    }
+                    None => {
+                        builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Plunge, tool.plunge_feed);
+                    }
+                }
             }
         }
         match operation.tabs {
@@ -280,7 +355,16 @@ fn contour_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z:
             }
             Some(tabs) => circle_with_tabs(&path, tabs, z, safe_z, tool, builder),
         }
-        builder.rapid_to(path.start);
+        match &operation.lead {
+            Some(lead) => {
+                let (outer, centre) = lead_arc(path.start, 0.0, 1.0, lead, z);
+                builder.arc_to(Point::new(outer.x, outer.y, z), centre, lead.is_clockwise(), tool.feed);
+                builder.rapid_to(Point::new(outer.x, outer.y, safe_z));
+            }
+            None => {
+                builder.rapid_to(path.start);
+            }
+        }
     }
 }
 
@@ -864,6 +948,18 @@ impl Builder {
         self.add(kind, to, feed);
     }
 
+    /// Emits one half-circle cutting arc from the current point to `to` around
+    /// `centre`, interpolating at the cutting feed.
+    fn arc_to(&mut self, to: Point, centre: Point, clockwise: bool, feed: f64) {
+        let from = self.at;
+        let radius = ((from.x - centre.x).powi(2) + (from.y - centre.y).powi(2)).sqrt();
+        let length = radius * std::f64::consts::PI;
+        self.at = to;
+        self.cut_length += length;
+        self.cutting_seconds += length / feed * 60.0;
+        self.segments.push(Move { kind: MoveKind::Arc, from, to, length, feed, arc: Some(ArcParams { centre, clockwise }) });
+    }
+
     fn add(&mut self, kind: MoveKind, to: Point, feed: f64) {
         let from = self.at;
         let length = from.distance_to(to);
@@ -876,12 +972,12 @@ impl Builder {
                 self.rapid_length += length;
                 self.rapid_seconds += length / RAPID_FEED * 60.0;
             }
-            MoveKind::Plunge | MoveKind::Cut => {
+            MoveKind::Plunge | MoveKind::Cut | MoveKind::Arc => {
                 self.cut_length += length;
                 self.cutting_seconds += length / feed * 60.0;
             }
         }
-        self.segments.push(Move { kind, from, to, length, feed });
+        self.segments.push(Move { kind, from, to, length, feed, arc: None });
     }
 
     fn finish(mut self, operation: &Operation) -> OperationPath {

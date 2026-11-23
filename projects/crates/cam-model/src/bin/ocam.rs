@@ -7,7 +7,9 @@
 
 use std::{collections::HashMap, env, path::Path, process};
 
-use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool};
+use cam_model::{
+    CamError, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool,
+};
 
 const USAGE: &str = "\
 ocam - OpenCAM 2.5-axis toolpath and G-code generator (millimetres)
@@ -24,7 +26,7 @@ Usage:
                      [--shape rect|circle]
                      [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                      [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>] [--island <x,y,w,h>]...
-                     [--path <x,y;x,y>] [--tabs <count,width,height>] [--closed] [--finish]
+                     [--path <x,y;x,y>] [--tabs <count,width,height>] [--lead <radius,cw|ccw>] [--closed] [--finish]
                      (--shape rect|circle applies to contour and pocket; circle uses --width as the diameter)
   ocam operation remove <file> --id <id>
   ocam validate <file>
@@ -187,6 +189,7 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
                     "--island",
                     "--path",
                     "--tabs",
+                    "--lead",
                 ],
                 &["--closed", "--finish"],
             )?;
@@ -215,6 +218,9 @@ fn operation_command(args: &[String]) -> Result<i32, CamError> {
             }
             if let Some(raw) = values.value("--tabs") {
                 operation.tabs = Some(parse_tabs(raw)?);
+            }
+            if let Some(raw) = values.value("--lead") {
+                operation.lead = Some(parse_lead(raw)?);
             }
             operation.closed = values.value("--closed").is_some();
             operation.finish = values.value("--finish").is_some().then_some(true);
@@ -284,6 +290,18 @@ fn parse_tabs(raw: &str) -> Result<TabSettings, CamError> {
     let width = parse_number("--tabs width", parts[1])?;
     let height = parse_number("--tabs height", parts[2])?;
     Ok(TabSettings::new(count, width, height))
+}
+
+fn parse_lead(raw: &str) -> Result<LeadSettings, CamError> {
+    let parts: Vec<&str> = raw.split(',').map(str::trim).collect();
+    if parts.len() != 2 {
+        return Err(CamError::new("cli/invalid-option", format!("lead `{raw}` must be a `radius,direction` pair")));
+    }
+    let radius = parse_number("--lead radius", parts[0])?;
+    if parts[1] != "cw" && parts[1] != "ccw" {
+        return Err(CamError::new("cli/invalid-option", format!("lead direction `{}` must be `cw` or `ccw`", parts[1])));
+    }
+    Ok(LeadSettings::new(radius, parts[1]))
 }
 
 fn session(file: &str) -> Result<OpenCam, CamError> {

@@ -5,9 +5,10 @@
 //! * one rectangular stock block, measured in millimetres;
 //! * a tool table with diameter, flute count, spindle speed and cutting feeds;
 //! * five machining strategies — raster facing, outside contouring (rectangle
-//!   or circle), pocket clearing (rectangular raster or spiral, circular
-//!   concentric rings, optionally around rectangular islands), drilling cycles
-//!   and polyline engraving;
+//!   or circle, with optional half-circle tangential lead-in and lead-out arcs
+//!   rendered as `G2`/`G3`), pocket clearing (rectangular raster or spiral,
+//!   circular concentric rings, optionally around rectangular islands),
+//!   drilling cycles and polyline engraving;
 //! * multi-pass Z depth control through `stepdown`, and raster spacing through
 //!   `stepover`;
 //! * a deterministic toolpath generator with cutting/rapid lengths and cycle
@@ -35,7 +36,8 @@ pub use crate::{
     export::{markdown, segments_csv, write_atomic},
     gcode::render as render_gcode,
     model::{
-        CamDocument, FORMAT, Hole, Island, Operation, OperationKind, PathPoint, Point, Stock, TabSettings, Tool, UNITS, VERSION,
+        CamDocument, FORMAT, Hole, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock, TabSettings, Tool,
+        UNITS, VERSION,
     },
     session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
@@ -51,6 +53,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "face": "supported",
     "contour": "supported",
     "contourCircle": "supported",
+    "contourLead": "supported",
     "tabs": "supported",
     "pocket": "supported",
     "pocketRect": "supported",

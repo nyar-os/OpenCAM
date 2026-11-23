@@ -78,6 +78,17 @@ export interface TabSettings {
     readonly height: number;
 }
 
+/** Rotation direction of the contour lead arcs. */
+export type LeadDirection = 'cw' | 'ccw';
+
+/** Tangential half-circle lead-in and lead-out of a `contour` operation. */
+export interface LeadSettings {
+    /** Radius of both lead arcs, in millimetres. */
+    readonly radius: number;
+    /** Arc rotation direction; `cw` renders `G2`, `ccw` renders `G3`. */
+    readonly direction: LeadDirection;
+}
+
 /** One machining operation. */
 export interface Operation {
     readonly id: string;
@@ -115,6 +126,8 @@ export interface Operation {
     readonly tabs?: TabSettings;
     /** Adds one wall finish loop per Z level to a pocket operation. */
     readonly finish?: boolean;
+    /** Tangential lead arcs of a contour operation; absent plunges vertically. */
+    readonly lead?: LeadSettings;
 }
 
 /** Summary of one document as written to disk. */
@@ -142,7 +155,7 @@ export interface ValidationReport {
 }
 
 /** Kind of one machine move. */
-export type MoveKind = 'rapid' | 'plunge' | 'cut';
+export type MoveKind = 'rapid' | 'plunge' | 'cut' | 'arc';
 
 /** One point in machine coordinates. */
 export interface Point {
@@ -151,13 +164,24 @@ export interface Point {
     readonly z: number;
 }
 
+/** Arc parameters of one `arc` move. */
+export interface ArcParams {
+    /** Centre of the arc circle. */
+    readonly centre: Point;
+    /** `true` renders `G2`, `false` renders `G3`. */
+    readonly clockwise: boolean;
+}
+
 /** One machine move. */
 export interface Move {
     readonly kind: MoveKind;
     readonly from: Point;
     readonly to: Point;
+    /** Path length: Euclidean for linear moves, arc length for arcs. */
     readonly length: number;
     readonly feed: number;
+    /** Present only for an `arc` move. */
+    readonly arc?: ArcParams;
 }
 
 /** Generated path of one operation. */
@@ -279,6 +303,8 @@ export interface OperationRequest {
     readonly tabs?: TabSettings;
     /** Adds one wall finish loop per Z level to a pocket operation; `false` when omitted. */
     readonly finish?: boolean;
+    /** Tangential lead arcs of a contour operation; omitted plunges vertically. Cannot be combined with `ramp`. */
+    readonly lead?: LeadSettings;
 }
 
 /** Disclosure level of one capability entry. */

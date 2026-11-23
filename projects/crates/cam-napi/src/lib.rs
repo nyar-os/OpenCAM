@@ -13,7 +13,9 @@
 
 use std::path::Path;
 
-use cam_model::{CamError, ExportFormat, Hole, Island, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool};
+use cam_model::{
+    CamError, ExportFormat, Hole, Island, LeadSettings, OpenCam, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool,
+};
 use serde::Serialize;
 use serde_json::Value;
 use wae::{CallContext, Error, JsValue, Result, function, register_module};
@@ -247,6 +249,19 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
             ));
         }
         Some(_) => return Err(argument_error("`tabs` must be an object")),
+    }
+    match request.get("lead") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(_)) => {
+            let lead = request.get("lead").expect("checked object");
+            let direction = match lead.get("direction") {
+                None | Some(Value::Null) => String::new(),
+                Some(Value::String(value)) => value.clone(),
+                Some(_) => return Err(argument_error("`lead.direction` must be a string")),
+            };
+            operation.lead = Some(LeadSettings::new(required_number_field(lead, "radius")?, direction));
+        }
+        Some(_) => return Err(argument_error("`lead` must be an object")),
     }
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;
