@@ -323,6 +323,34 @@ any failure nothing is written and the revision stays the same, while a
 successful duplicate is saved atomically, bumps the revision once and prints the
 usual edit summary.
 
+## operation reorder
+
+```shell
+open-cam operation reorder <file> --id <id> --to <index>
+```
+
+Moves one operation to a final 0-based position and saves the document
+atomically. `--to 0` puts it first and `--to <operationCount - 1>` puts it last:
+the operation is removed from its current position and reinserted at `--to`, so
+`--to` is the position the operation occupies after the move. An unknown
+`--id` reports `operation/unknown-id`; a `--to` at or beyond the operation count
+reports `operation/invalid`, and a negative or non-integer `--to` reports
+`cli/invalid-number`.
+
+Moving an operation to its current index is a no-op: the command succeeds with
+`changed: false`, does not rewrite the file and leaves the revision unchanged.
+A real move keeps every field of every operation, changes only the order and
+reports `changed: true` with the saved revision. Operation order is the
+execution order, so toolpaths, G-code, the cycle-time estimate, the operation
+list and the sequence plan all follow the new order; no document structure is
+stored to rebuild and ids never change. The whole candidate document is
+validated with the same rules as `operation add`, `operation update`,
+`operation delete` and `save` before it is written: on any failure nothing is
+written and the revision stays the same, while a successful move is saved
+atomically, bumps the revision once and prints an
+`open-cam-operation-reorder` report with `id`, `from`, `to`, `changed`,
+`operationCount` and the saved `revision`.
+
 ## validate
 
 ```shell
@@ -517,6 +545,7 @@ open-cam operation list bracket.ocam
 open-cam operation update bracket.ocam --id floor --depth 4 --stepdown 2
 open-cam operation update bracket.ocam --id bore --peck 2
 open-cam operation duplicate bracket.ocam --id floor --new-id floor-finish
+open-cam operation reorder bracket.ocam --id logo --to 0
 open-cam operation delete bracket.ocam --id edge
 open-cam validate bracket.ocam
 open-cam toolpaths bracket.ocam

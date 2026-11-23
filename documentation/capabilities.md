@@ -40,6 +40,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | partial operation update (tool, name, depth, stepdown, stepover, peck, dwell) | ✅ supported |
 | operation deletion (self-contained operations, last operation allowed) | ✅ supported |
 | operation duplication (every field copied, inserted after the source, generated `op-N`) | ✅ supported |
+| operation reordering (final 0-based index, same-index no-op keeps the revision) | ✅ supported |
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
@@ -303,6 +304,22 @@ The machine-readable version is printed by `open-cam capabilities` and by
     rejected duplicate writes nothing and keeps the revision; a successful
     duplicate is saved atomically, bumps the revision once and returns the usual
     summary.
+24. **Operation reordering.** A reorder moves one operation to a final 0-based
+    index in the operation array: the operation is removed from its current
+    position and reinserted at `to`, so `0` puts it first and
+    `operationCount − 1` puts it last. An unknown id reports
+    `operation/unknown-id`; an index at or beyond the operation count reports
+    `operation/invalid`. Moving an operation to its current index is a no-op:
+    the request succeeds with `changed: false`, the file is not rewritten and the
+    revision does not rise. Every other field and every other operation keeps
+    its value, and ids never change. Operation order is the execution order:
+    toolpaths, G-code, the cycle-time estimate, the operation list and the
+    sequence plan all read the array when they are called, so nothing is stored
+    to rebuild. The whole candidate document is validated with the same rules as
+    `add`, `update` and `delete` before it is written; a rejected reorder writes
+    nothing and keeps the revision, while a successful move is saved atomically,
+    bumps the revision once and returns a report with `changed: true` and the
+    saved revision.
 
 ## Tool library
 
@@ -394,6 +411,7 @@ outside the stock) do not make `ok` false.
 | `tests/operation_update.rs` | partial updates per field, untouched fields and operations, tool-usage change, invalid values, peck/dwell kind and combination rules, unknown id and tool, whole-document validation, revision bump only on success, unchanged file after failure, round trip, determinism and the unsaved candidate |
 | `tests/operation_delete.rs` | delete order and revision bump, final operation leaving an empty valid document, unknown id, failed validation leaving the file byte-identical, tool-table and sequence references after a delete, round trip, determinism and the unsaved candidate |
 | `tests/operation_duplicate.rs` | every field copied per kind, insertion after the source, supplied and generated `op-N` ids, empty and clashing ids, unknown source, failed validation leaving the file byte-identical, revision bump, round trip, determinism and the unsaved candidate |
+| `tests/operation_reorder.rs` | move up, move down and to the first and last index, every field preserved, same-index no-op without a write or revision bump, out-of-range and unknown-id codes, failed validation leaving the file byte-identical and the revision unchanged, derived reports following the new order without changing ids, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/post.rs` | default byte identity, empty request defaults, `O` program number placement, line numbering and increment, `M8`/`M7`/`M9` pairing, unchanged moves, `post/invalid` codes and determinism |
 | `tests/sequence.rs` | stable tool grouping, before/after tool-change counts, per-tool order, single-tool and empty documents, source immutability, applied revision and idempotent apply, determinism |
@@ -469,9 +487,11 @@ outside the stock) do not make `ok` false.
   operation without tool-change overhead, not a machine simulation.
 - A delete removes exactly one operation and an update cannot reorder;
   duplication is the only insertion primitive and it always places the copy
-  directly after its source. There is no multi-select delete, no cascade
-  cleanup (operations reference nothing else), no undo stack and no automatic
-  name suffix on a duplicate.
+  directly after its source, while `operation reorder` moves one existing
+  operation to one final 0-based index. Sequencing groups the whole document by
+  tool instead. There is no multi-select reorder or delete, no cascade cleanup
+  (operations reference nothing else), no undo stack and no automatic name
+  suffix on a duplicate.
 - Drilling takes an explicit hole list or one generated pattern: a rectangular
   grid (`columns × rows`) or a full circle of evenly spaced holes. A pattern
   replaces the list rather than extending it, and there are no staggered,
