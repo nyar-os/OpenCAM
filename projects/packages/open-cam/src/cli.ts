@@ -20,6 +20,7 @@ import { NotImplementedError, OpenCAMError, type OpenCAMErrorCode } from './erro
 import { OpenCAM } from './open-cam.js';
 import type {
     ArcMode,
+    CoolantMode,
     ExportFormat,
     Hole,
     Island,
@@ -28,6 +29,7 @@ import type {
     PathPoint,
     PocketShape,
     PocketStrategy,
+    PostOptions,
     TabSettings,
 } from './types.js';
 
@@ -504,16 +506,42 @@ cli
 cli
     .command('gcode', 'cli.cmd.gcode')
     .option('--out <program.nc>', 'cli.opt.out')
+    .option('--program-number <n>', 'cli.opt.program-number')
+    .option('--line-numbers', 'cli.opt.line-numbers')
+    .option('--line-increment <n>', 'cli.opt.line-increment')
+    .option('--coolant <off|flood|mist>', 'cli.opt.coolant')
     .actionCtx(async (options, _args, ctx) =>
         guard(ctx, async () => {
             const file = positional(ctx, options, 'gcode <file>');
             await withDocument(file, async (document) => {
-                const program = await document.gcode();
+                const programNumber = integer(ctx, options, '--program-number');
+                const lineIncrement = integer(ctx, options, '--line-increment');
+                const coolant = text(options, 'coolant');
+                const post: PostOptions = {
+                    ...(programNumber === undefined ? {} : { programNumber }),
+                    ...(flag(options, 'line-numbers') ? { lineNumbers: true } : {}),
+                    ...(lineIncrement === undefined ? {} : { lineIncrement }),
+                    ...(coolant === undefined ? {} : { coolant: coolant as CoolantMode }),
+                };
+                const program = await document.gcode(post);
                 const target = text(options, 'out');
                 if (target !== undefined) {
                     fs.writeFileSync(target, program);
                 }
                 process.stdout.write(program);
+            });
+            return 0;
+        }),
+    );
+
+cli
+    .command('sequence', 'cli.cmd.sequence')
+    .option('--apply', 'cli.opt.apply')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'sequence <file>');
+            await withDocument(file, async (document) => {
+                print(flag(options, 'apply') ? await document.applySequence() : await document.sequence());
             });
             return 0;
         }),

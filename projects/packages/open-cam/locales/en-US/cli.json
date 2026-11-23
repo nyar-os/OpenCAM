@@ -19,6 +19,7 @@
             "toolpaths": "generate the toolpath report",
             "estimate": "estimate the cycle time",
             "gcode": "render the G-code program",
+            "sequence": "plan or apply a tool-grouped operation order",
             "export": "export G-code, JSON, CSV or Markdown",
             "report": "print the full report"
         },
@@ -55,6 +56,11 @@
             "finish": "mark the operation as a finishing pass",
             "rapid-feed": "rapid traverse speed in mm/min",
             "tool-change": "tool change time in seconds",
+            "program-number": "program number emitted as `O<n>` after the leading `%`",
+            "line-numbers": "prefix every program line with a sequential `N` word",
+            "line-increment": "distance between two line numbers (default 10)",
+            "coolant": "coolant mode: off, flood (`M8`) or mist (`M7`)",
+            "apply": "reorder and save the document instead of only printing the plan",
             "out": "write the result to this path",
             "from": "tool library file to import",
             "format": "export format: gcode, json, csv or md"
