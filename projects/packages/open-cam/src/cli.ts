@@ -23,6 +23,7 @@ import type {
     CoolantMode,
     ExportFormat,
     Hole,
+    HolePattern,
     Island,
     LeadSettings,
     OperationKind,
@@ -172,6 +173,30 @@ function parsePath(raw: string): PathPoint[] {
             }
             return { x, y };
         });
+}
+
+function parsePattern(raw: string): HolePattern {
+    const parts = raw.split(',').map((entry) => entry.trim());
+    const finite = (...values: number[]): boolean => values.every((value) => Number.isFinite(value));
+    if (parts[0] === 'grid') {
+        const rows = Number(parts[1]);
+        const columns = Number(parts[2]);
+        const spacingX = Number(parts[3]);
+        const spacingY = Number(parts[4]);
+        if (parts.length !== 5 || !Number.isInteger(rows) || !Number.isInteger(columns) || !finite(spacingX, spacingY)) {
+            throw new OpenCAMError('cli/invalid-number', `pattern \`${raw}\` must be a \`grid,rows,columns,spacingX,spacingY\` tuple`);
+        }
+        return { kind: 'grid', rows, columns, spacingX, spacingY };
+    }
+    if (parts[0] === 'circular') {
+        const count = Number(parts[1]);
+        const radius = Number(parts[2]);
+        if (parts.length !== 3 || !Number.isInteger(count) || !finite(radius)) {
+            throw new OpenCAMError('cli/invalid-number', `pattern \`${raw}\` must be a \`circular,count,radius\` tuple`);
+        }
+        return { kind: 'circular', count, radius };
+    }
+    throw new OpenCAMError('operation/invalid', `unknown pattern \`${raw}\`; only grid or circular is supported`);
 }
 
 function parseIslands(raw: readonly string[]): Island[] {
@@ -382,6 +407,7 @@ operationCommand
     .option('--width <mm>', 'cli.opt.width')
     .option('--height <mm>', 'cli.opt.height')
     .option('--holes <x,y;x,y>', 'cli.opt.holes')
+    .option('--pattern <grid,rows,columns,spacingX,spacingY|circular,count,radius>', 'cli.opt.pattern')
     .option('--peck <mm>', 'cli.opt.peck')
     .option('--dwell <seconds>', 'cli.opt.dwell')
     .option('--island <x,y,w,h>...', 'cli.opt.island')
@@ -397,6 +423,7 @@ operationCommand
                 const depth = requiredNumber(ctx, options, '--depth');
                 const id = required(ctx, options, '--id');
                 const holes = text(options, 'holes');
+                const pattern = text(options, 'pattern');
                 const pathValue = text(options, 'path');
                 const strategy = text(options, 'strategy');
                 const shape = text(options, 'shape');
@@ -421,6 +448,7 @@ operationCommand
                         width: number(ctx, options, '--width') ?? 0,
                         height: number(ctx, options, '--height') ?? 0,
                         holes: holes === undefined ? [] : parseHoles(holes),
+                        pattern: pattern === undefined ? undefined : parsePattern(pattern),
                         path: pathValue === undefined ? [] : parsePath(pathValue),
                         closed: flag(options, 'closed'),
                         islands: parseIslands(values(options, 'island')),
@@ -499,6 +527,25 @@ cli
                 }
                 print(report);
             });
+            return 0;
+        }),
+    );
+
+cli
+    .command('feeds', 'cli.cmd.feeds')
+    .option('--material <name>', 'cli.opt.material')
+    .option('--diameter <mm>', 'cli.opt.diameter')
+    .option('--flutes <n>', 'cli.opt.flutes')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const flutes = integer(ctx, options, '--flutes');
+            print(
+                await app.feeds({
+                    material: required(ctx, options, '--material'),
+                    diameter: requiredNumber(ctx, options, '--diameter'),
+                    ...(flutes === undefined ? {} : { flutes }),
+                }),
+            );
             return 0;
         }),
     );
