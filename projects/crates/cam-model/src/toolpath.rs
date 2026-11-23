@@ -303,16 +303,19 @@ fn lead_arc(tangent_point: Point, dx: f64, dy: f64, lead: &LeadSettings, z: f64)
 /// `width` is the diameter and `height` equals it, so the part is centred at
 /// `(x + width / 2, y + height / 2)` and the tool centre follows the circle of
 /// radius `width / 2 + r`. The ring starts at angle 0 (+X) and runs
-/// counter-clockwise as [`RING_SEGMENTS`] linear cutting segments, closing at
-/// the cutting feed. Every depth level rapids to the start at the clearance
-/// plane, enters with the vertical plunge or the `ramp` entry and retracts to
-/// the clearance plane afterwards, exactly like the rectangular contour.
+/// counter-clockwise, closing at the cutting feed: as [`RING_SEGMENTS`] linear
+/// cutting segments by default, or as counter-clockwise `G3` arcs of at most
+/// half a circle when the operation sets `arcs: "arc"`. Every depth level
+/// rapids to the start at the clearance plane, enters with the vertical plunge
+/// or the `ramp` entry and retracts to the clearance plane afterwards, exactly
+/// like the rectangular contour.
 ///
 /// With `tabs` the ring is split at every tab entry and exit angle so no
 /// cutting move crosses a tab, and the cutter lifts over each tab as described
 /// in [`circle_with_tabs`].
 fn contour_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let path = CirclePath::new(operation, tool, safe_z);
+    let arcs = uses_arcs(operation);
     let chord = std::f64::consts::TAU / RING_SEGMENTS as f64;
     // A ramp stays on the first cutting run and never crosses a tab.
     let ramp_end = match operation.tabs {
@@ -347,13 +350,10 @@ fn contour_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z:
         }
         match operation.tabs {
             None => {
-                for step in 1..=RING_SEGMENTS {
-                    let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
-                    builder.feed_to(path.point(angle, z), MoveKind::Cut, tool.feed);
-                }
+                Ring { centre: path.centre, radius: path.radius }.cut(builder, 0.0, std::f64::consts::TAU, z, tool.feed, arcs);
                 builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Cut, tool.feed);
             }
-            Some(tabs) => circle_with_tabs(&path, tabs, z, safe_z, tool, builder),
+            Some(tabs) => circle_with_tabs(&path, tabs, z, safe_z, tool, builder, arcs),
         }
         match &operation.lead {
             Some(lead) => {
@@ -424,8 +424,9 @@ fn ring_angles_between(start: f64, end: f64) -> Vec<f64> {
 /// plunges back to `z`; the intervals between tabs are cut at the cutting feed.
 /// One level therefore emits exactly `count` lifts and `count` tab-end plunges,
 /// every point stays exactly `path_radius` from the centre and the ring closes
-/// at the start point.
-fn circle_with_tabs(path: &CirclePath, tabs: TabSettings, z: f64, safe_z: f64, tool: &Tool, builder: &mut Builder) {
+/// at the start point. With `arcs` the cutting intervals become `G3` arcs while
+/// the rapid crossings over a tab stay straight moves.
+fn circle_with_tabs(path: &CirclePath, tabs: TabSettings, z: f64, safe_z: f64, tool: &Tool, builder: &mut Builder, arcs: bool) {
     let raised = (z + tabs.height).min(safe_z);
     let share = std::f64::consts::TAU / f64::from(tabs.count);
     let half = tabs.width / (2.0 * path.radius);
@@ -435,20 +436,61 @@ fn circle_with_tabs(path: &CirclePath, tabs: TabSettings, z: f64, safe_z: f64, t
         let tab_centre = (f64::from(index) + 0.5) * share;
         let entry = tab_centre - half;
         let exit = tab_centre + half;
-        circle_cut_arc(path, builder, cursor, entry, z, tool.feed);
+        Ring { centre: path.centre, radius: path.radius }.cut(builder, cursor, entry, z, tool.feed, arcs);
         builder.rapid_to(path.point(entry, raised));
         circle_rapid_arc(path, builder, entry, exit, raised);
         builder.feed_to(path.point(exit, z), MoveKind::Plunge, tool.plunge_feed);
         cursor = exit;
     }
-    circle_cut_arc(path, builder, cursor, std::f64::consts::TAU, z, tool.feed);
+    Ring { centre: path.centre, radius: path.radius }.cut(builder, cursor, std::f64::consts::TAU, z, tool.feed, arcs);
     builder.feed_to(Point::new(path.start.x, path.start.y, z), MoveKind::Cut, tool.feed);
 }
 
-fn circle_cut_arc(path: &CirclePath, builder: &mut Builder, start: f64, end: f64, z: f64, feed: f64) {
-    for angle in ring_angles_between(start, end) {
-        builder.feed_to(path.point(angle, z), MoveKind::Cut, feed);
+/// Tool-centre ring of a circular contour or pocket.
+struct Ring {
+    centre: Point,
+    radius: f64,
+}
+
+impl Ring {
+    /// Cuts one angular interval of the ring at height `z`.
+    ///
+    /// Without `arcs` the interval is split at the [`RING_SEGMENTS`] grid and cut
+    /// as straight chords. With `arcs` it becomes counter-clockwise `G3` arcs of
+    /// at most half a circle each, so no arc is ambiguous for a controller that
+    /// picks the minor arc from `I`/`J` and the end point.
+    fn cut(&self, builder: &mut Builder, start: f64, end: f64, z: f64, feed: f64, arcs: bool) {
+        if !arcs {
+            for angle in ring_angles_between(start, end) {
+                builder.feed_to(ring_point(self.centre, self.radius, angle, z), MoveKind::Cut, feed);
+            }
+            return;
+        }
+        let sweep = end - start;
+        if sweep <= TOLERANCE {
+            return;
+        }
+        let pieces = ((sweep / std::f64::consts::PI) - TOLERANCE).ceil().max(1.0) as usize;
+        let step = sweep / pieces as f64;
+        for index in 1..=pieces {
+            let angle = start + step * index as f64;
+            builder.arc_sweep_to(ring_point(self.centre, self.radius, angle, z), self.centre, false, step, feed);
+        }
     }
+}
+
+/// One point of a ring around `centre` at `angle` radians and height `z`.
+///
+/// An angle that closes on a full turn is normalised to 0, so a closed ring ends
+/// exactly on its start point with no rounding residue.
+fn ring_point(centre: Point, radius: f64, angle: f64, z: f64) -> Point {
+    let angle = if (std::f64::consts::TAU - angle).abs() < TOLERANCE { 0.0 } else { angle };
+    Point::new(centre.x + radius * angle.cos(), centre.y + radius * angle.sin(), z)
+}
+
+/// True when the operation asks for `G3` rings instead of chord approximation.
+fn uses_arcs(operation: &Operation) -> bool {
+    operation.arcs.as_deref() == Some("arc")
 }
 
 fn circle_rapid_arc(path: &CirclePath, builder: &mut Builder, start: f64, end: f64, z: f64) {
@@ -763,17 +805,18 @@ fn pocket_spiral(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
 ///
 /// With pocket radius `R = width / 2` and cutter radius `r`, the first ring has
 /// radius `R − r`; every next ring shrinks by `stepover` until the radius is no
-/// longer positive. Rings are approximated by [`RING_SEGMENTS`] cutting segments
-/// and close at the cutting feed, and the cutter advances to the next ring at
-/// the cutting feed without lifting. A final cutting move reaches the centre so
-/// the core is always cleared. Every ring point is at most `R − r` from the
-/// centre, so no cutting point leaves the pocket or comes closer than `r` to
-/// its wall.
+/// longer positive. Rings are cut as [`RING_SEGMENTS`] chords by default or as
+/// counter-clockwise `G3` arcs of at most half a circle with `arcs: "arc"`, close
+/// at the cutting feed, and the cutter advances to the next ring at the cutting
+/// feed without lifting. A final cutting move reaches the centre so the core is
+/// always cleared. Every ring point is at most `R − r` from the centre, so no
+/// cutting point leaves the pocket or comes closer than `r` to its wall.
 fn pocket_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: f64, builder: &mut Builder) {
     let radius = tool.radius();
     let stepover = operation.stepover.unwrap_or(0.6 * tool.diameter);
     let pocket_radius = operation.width / 2.0;
     let centre = Point::new(operation.x + pocket_radius, operation.y + pocket_radius, 0.0);
+    let arcs = uses_arcs(operation);
 
     let mut rings = Vec::new();
     let mut ring = pocket_radius - radius;
@@ -807,17 +850,13 @@ fn pocket_circle(operation: &Operation, tool: &Tool, stock_height: f64, safe_z: 
             if index > 0 {
                 builder.feed_to(start, MoveKind::Cut, tool.feed);
             }
-            for step in 1..=RING_SEGMENTS {
-                let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
-                let point = Point::new(centre.x + ring * angle.cos(), centre.y + ring * angle.sin(), z);
-                builder.feed_to(point, MoveKind::Cut, tool.feed);
-            }
+            Ring { centre, radius: *ring }.cut(builder, 0.0, std::f64::consts::TAU, z, tool.feed, arcs);
             builder.feed_to(start, MoveKind::Cut, tool.feed);
             builder.loop_count += 1;
         }
         builder.feed_to(Point::new(centre.x, centre.y, z), MoveKind::Cut, tool.feed);
         if operation.finish == Some(true) {
-            finish_circle(&centre, pocket_radius, tool, z, builder);
+            finish_circle(&centre, pocket_radius, tool, z, builder, arcs);
         }
         let at = builder.at;
         builder.rapid_to(Point::new(at.x, at.y, safe_z));
@@ -845,17 +884,15 @@ fn finish_rectangle(operation: &Operation, tool: &Tool, z: f64, builder: &mut Bu
 
 /// One closed finish ring along the final circular pocket wall.
 ///
-/// The ring has radius `R − r` around `centre`, the same approximation as the
-/// clearing rings, and is reached with one cutting move from the centre. It
-/// runs at the level depth and the cutting feed and adds no Z move.
-fn finish_circle(centre: &Point, radius: f64, tool: &Tool, z: f64, builder: &mut Builder) {
+/// The ring has radius `R − r` around `centre`, uses the same interpolation as
+/// the clearing rings (chords by default, `G3` arcs with `arcs`) and is reached
+/// with one cutting move from the centre. It runs at the level depth and the
+/// cutting feed and adds no Z move.
+fn finish_circle(centre: &Point, radius: f64, tool: &Tool, z: f64, builder: &mut Builder, arcs: bool) {
     let ring = radius - tool.radius();
     let start = Point::new(centre.x + ring, centre.y, z);
     builder.feed_to(start, MoveKind::Cut, tool.feed);
-    for step in 1..=RING_SEGMENTS {
-        let angle = std::f64::consts::TAU * step as f64 / RING_SEGMENTS as f64;
-        builder.feed_to(Point::new(centre.x + ring * angle.cos(), centre.y + ring * angle.sin(), z), MoveKind::Cut, tool.feed);
-    }
+    Ring { centre: *centre, radius: ring }.cut(builder, 0.0, std::f64::consts::TAU, z, tool.feed, arcs);
     builder.feed_to(start, MoveKind::Cut, tool.feed);
 }
 
@@ -951,10 +988,19 @@ impl Builder {
     /// Emits one half-circle cutting arc from the current point to `to` around
     /// `centre`, interpolating at the cutting feed.
     fn arc_to(&mut self, to: Point, centre: Point, clockwise: bool, feed: f64) {
+        self.arc_sweep_to(to, centre, clockwise, std::f64::consts::PI, feed);
+    }
+
+    /// Emits one circular cutting arc of `sweep` radians from the current point
+    /// to `to` around `centre`, interpolating at the cutting feed.
+    fn arc_sweep_to(&mut self, to: Point, centre: Point, clockwise: bool, sweep: f64, feed: f64) {
         let from = self.at;
         let radius = ((from.x - centre.x).powi(2) + (from.y - centre.y).powi(2)).sqrt();
-        let length = radius * std::f64::consts::PI;
+        let length = radius * sweep;
         self.at = to;
+        if length <= 1e-12 {
+            return;
+        }
         self.cut_length += length;
         self.cutting_seconds += length / feed * 60.0;
         self.segments.push(Move { kind: MoveKind::Arc, from, to, length, feed, arc: Some(ArcParams { centre, clockwise }) });

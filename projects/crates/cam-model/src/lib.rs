@@ -15,6 +15,8 @@
 //!   time estimation;
 //! * a configurable cycle-time estimate report splitting every operation into
 //!   cutting, plunge, retract, traverse and tool-change time;
+//! * portable `open-cam-tools` library files plus a tool-table report that ties
+//!   every declared tool to the operations that use it;
 //! * a generic absolute-millimetre G-code writer (`G21 G90 G17 G94`) including
 //!   `G81`/`G83` drilling cycles;
 //! * JSON, CSV and Markdown toolpath reports.
@@ -29,6 +31,7 @@ mod error;
 mod estimate;
 mod export;
 mod gcode;
+mod library;
 mod model;
 mod session;
 mod toolpath;
@@ -41,11 +44,12 @@ pub use crate::{
     },
     export::{markdown, segments_csv, write_atomic},
     gcode::render as render_gcode,
+    library::{LIBRARY_FORMAT, LIBRARY_VERSION, ToolEntry, ToolLibrary, ToolTableReport},
     model::{
         CamDocument, FORMAT, Hole, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock, TabSettings, Tool,
         UNITS, VERSION,
     },
-    session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report},
+    session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
     validate::{Issue, Severity, ValidationReport},
 };
@@ -60,6 +64,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "contour": "supported",
     "contourCircle": "supported",
     "contourLead": "supported",
+    "circleArcs": "supported",
     "tabs": "supported",
     "pocket": "supported",
     "pocketRect": "supported",
@@ -82,6 +87,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "json": "supported",
     "csv": "supported",
     "md": "supported",
+    "toolLibrary": "supported",
     "step": "unsupported",
     "dxf": "unsupported"
   }

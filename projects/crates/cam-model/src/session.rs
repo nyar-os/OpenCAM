@@ -18,6 +18,7 @@ use crate::{
     estimate::{self, CycleTimeReport, EstimateRequest},
     export::{markdown, segments_csv, write_atomic},
     gcode,
+    library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
     toolpath::{self, ToolpathReport},
     validate::{self, ValidationReport},
@@ -101,6 +102,22 @@ pub struct ExportReport {
     pub files: Vec<String>,
     /// Number of bytes written.
     pub bytes: usize,
+}
+
+/// Report returned by [`OpenCam::import_tool_library`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolImportReport {
+    /// Report format identifier, always `open-cam-tool-import`.
+    pub format: String,
+    /// Report version.
+    pub version: u32,
+    /// Library file that was read, exactly as the caller supplied it.
+    pub path: String,
+    /// Tool ids that were added, in library order.
+    pub imported: Vec<String>,
+    /// Number of tools the document declares after the import.
+    pub tool_count: usize,
 }
 
 /// Full report returned by [`OpenCam::report`].
@@ -206,6 +223,51 @@ impl OpenCam {
         }
         document.tools.retain(|tool| tool.id != id);
         self.persist(document)
+    }
+
+    /// Returns every declared tool with the operations that use it.
+    pub fn tool_table(&self) -> Result<ToolTableReport, CamError> {
+        Ok(library::tool_table(self.document()?))
+    }
+
+    /// Writes the document tool table as a portable `open-cam-tools` library.
+    pub fn write_tool_library(&self, target: &Path) -> Result<ExportReport, CamError> {
+        let text = ToolLibrary::new(self.document()?.tools.clone()).render()?;
+        write_atomic(target, &text)?;
+        Ok(ExportReport {
+            format: "tools".to_string(),
+            path: target.display().to_string(),
+            files: vec![target.display().to_string()],
+            bytes: text.len(),
+        })
+    }
+
+    /// Merges a portable tool library into the document and saves it.
+    ///
+    /// The library is parsed and validated first, so a malformed file or a tool
+    /// id that is already declared leaves the document untouched. The first
+    /// error is returned unchanged.
+    pub fn import_tool_library(&mut self, source: &Path) -> Result<ToolImportReport, CamError> {
+        let text = fs::read_to_string(source)
+            .map_err(|error| CamError::new("io/read", format!("cannot read `{}`: {error}", source.display())))?;
+        let library = ToolLibrary::parse(&text)?;
+        let mut document = self.document()?.clone();
+        if let Some(tool) = library.tools.iter().find(|tool| document.tools.iter().any(|entry| entry.id == tool.id)) {
+            return Err(CamError::new(
+                "tool/duplicate-id",
+                format!("tool `{}` from the library is already declared in this document", tool.id),
+            ));
+        }
+        let imported = library.tools.iter().map(|tool| tool.id.clone()).collect();
+        document.tools.extend(library.tools);
+        let summary = self.persist(document)?;
+        Ok(ToolImportReport {
+            format: "open-cam-tool-import".to_string(),
+            version: 1,
+            path: source.display().to_string(),
+            imported,
+            tool_count: summary.tools,
+        })
     }
 
     /// Adds an operation and saves the document.

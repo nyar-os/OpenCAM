@@ -282,6 +282,27 @@ fn validate_operation(operation: &Operation, document: &CamDocument, issues: &mu
             format!("operation `{}` uses closed but only `engrave` supports it", operation.id),
         ));
     }
+    match operation.arcs.as_deref() {
+        None | Some("linear") => {}
+        Some("arc") => {
+            if !matches!(operation.kind, OperationKind::Contour | OperationKind::Pocket) {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` uses arcs but only `contour` and `pocket` support it", operation.id),
+                ));
+            }
+            else if operation.shape.as_deref() != Some("circle") {
+                issues.push(Issue::error(
+                    "operation/invalid",
+                    format!("operation `{}` uses arcs but only a `circle` shape emits circular interpolation", operation.id),
+                ));
+            }
+        }
+        Some(other) => issues.push(Issue::error(
+            "operation/invalid",
+            format!("operation `{}` arcs `{other}` is unknown; only `linear` or `arc` is supported", operation.id),
+        )),
+    }
     if operation.finish.is_some() && operation.kind != OperationKind::Pocket {
         issues.push(Issue::error(
             "operation/invalid",

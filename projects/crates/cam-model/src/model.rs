@@ -281,7 +281,8 @@ impl LeadSettings {
 /// by `contour` and `pocket`, `holes` by `drill`, `islands` only by `pocket`,
 /// `peck` and `dwell` only by `drill`, `path` only by `engrave`, `closed` only
 /// by `engrave`, `tabs` only by `contour`, `ramp` only by `contour`, `pocket` and
-/// `engrave`, `lead` only by `contour`, and `finish` only by `pocket`. `strategy` selects the rectangle
+/// `engrave`, `lead` only by `contour`, `finish` only by `pocket`, and `arcs` only by a
+/// `circle` `contour` or `pocket`. `strategy` selects the rectangle
 /// clearing pattern: `raster` (the default) or `spiral` (concentric rectangles).
 /// `shape` selects the `contour` or `pocket` outline: `rect` (the default) or
 /// `circle`, which uses `width` as the diameter, needs `height` equal to
@@ -388,6 +389,17 @@ pub struct Operation {
     /// combined with `ramp`, which replaces the same entry plunge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead: Option<LeadSettings>,
+    /// Interpolation of the closed rings of a `circle` `contour` or `pocket`.
+    ///
+    /// `"linear"` (the default) approximates every ring with 72 straight cutting
+    /// moves, so existing output is unchanged. `"arc"` replaces each ring with
+    /// counter-clockwise `G3` arcs of at most half a circle, so the program
+    /// carries true circular interpolation instead of chords. Ring radii, depth
+    /// levels, feeds, loop counts and the ring transitions stay the same. Kept
+    /// as a string so an unknown value is reported as `operation/invalid` by
+    /// validation instead of a parse error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arcs: Option<String>,
 }
 
 impl Operation {
@@ -417,6 +429,7 @@ impl Operation {
             tabs: None,
             finish: None,
             lead: None,
+            arcs: None,
         }
     }
 }
