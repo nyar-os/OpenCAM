@@ -21,6 +21,8 @@ use crate::{
     gcode::{self, PostOptions},
     library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
+    operation_delete,
+    operation_duplicate::{self, OperationDuplicate},
     operation_list::{self, OperationListReport},
     operation_update::{self, OperationUpdate},
     sequence::{self, SequenceReport},
@@ -297,13 +299,35 @@ impl OpenCam {
     }
 
     /// Removes an operation and saves the document.
+    ///
+    /// The alias kept for callers of the older `operation remove` name; it is
+    /// the same delete path as [`Self::delete_operation`].
     pub fn remove_operation(&mut self, id: &str) -> Result<DocumentSummary, CamError> {
-        let mut document = self.document()?.clone();
-        if !document.operations.iter().any(|operation| operation.id == id) {
-            return Err(CamError::new("operation/unknown-id", format!("operation `{id}` does not exist")));
-        }
-        document.operations.retain(|operation| operation.id != id);
-        self.persist(document)
+        self.delete_operation(id)
+    }
+
+    /// Removes one operation and saves the document.
+    ///
+    /// An operation is self-contained, so deleting one never leaves a dangling
+    /// reference in the tool table, tabs, islands or the derived sequence plan.
+    /// The candidate document is validated with the same rules as `add`, `update`
+    /// and `save` before it is written, so a rejected delete leaves the document
+    /// and its revision untouched. Removing the last operation is allowed.
+    pub fn delete_operation(&mut self, id: &str) -> Result<DocumentSummary, CamError> {
+        let document = self.document()?.clone();
+        let candidate = operation_delete::delete(&document, id)?;
+        self.persist(candidate)
+    }
+
+    /// Copies one operation, inserts the copy after it and saves the document.
+    ///
+    /// The copy keeps every field of its source and only the identifier changes.
+    /// A missing id takes the smallest free `op-<n>` identifier; a rejected
+    /// duplicate leaves the document and its revision untouched.
+    pub fn duplicate_operation(&mut self, request: &OperationDuplicate) -> Result<DocumentSummary, CamError> {
+        let document = self.document()?.clone();
+        let candidate = operation_duplicate::duplicate(&document, request)?;
+        self.persist(candidate)
     }
 
     /// Lists every operation of the open document without changing it.

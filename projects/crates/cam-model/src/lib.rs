@@ -39,6 +39,8 @@ mod feeds;
 mod gcode;
 mod library;
 mod model;
+mod operation_delete;
+mod operation_duplicate;
 mod operation_list;
 mod operation_update;
 mod sequence;
@@ -61,6 +63,8 @@ pub use crate::{
         CamDocument, FORMAT, Hole, HolePattern, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock,
         TabSettings, Tool, UNITS, VERSION,
     },
+    operation_delete::delete as operation_delete,
+    operation_duplicate::{OperationDuplicate, duplicate as operation_duplicate},
     operation_list::{OperationListEntry, OperationListReport, list as operation_list},
     operation_update::{OperationUpdate, update as operation_update},
     sequence::{SequenceEntry, SequenceGroup, SequenceReport, plan as sequence_plan, reorder as sequence_reorder},
@@ -97,6 +101,8 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "feeds": "supported",
     "operationList": "supported",
     "operationUpdate": "supported",
+    "operationDelete": "supported",
+    "operationDuplicate": "supported",
     "adaptive": "unsupported",
     "turning": "unsupported",
     "fourAxis": "unsupported"
