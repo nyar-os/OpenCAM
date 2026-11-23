@@ -15,6 +15,7 @@ import type {
     EstimateRequest,
     ExportFormat,
     ExportReport,
+    OperationDuplicateRequest,
     OperationListReport,
     OperationRequest,
     OperationUpdateRequest,
@@ -123,10 +124,24 @@ export class CamDocument {
         return this.state;
     }
 
-    /** Removes an operation. */
+    /** Removes an operation; the alias of {@link deleteOperation}. */
     async removeOperation(id: string): Promise<DocumentSummary> {
         this.assertOpen();
         this.state = service.removeOperation(this.state.path, id);
+        return this.state;
+    }
+
+    /** Deletes an operation. */
+    async deleteOperation(id: string): Promise<DocumentSummary> {
+        this.assertOpen();
+        this.state = service.deleteOperation(this.state.path, id);
+        return this.state;
+    }
+
+    /** Copies an operation directly after itself. */
+    async duplicateOperation(request: OperationDuplicateRequest): Promise<DocumentSummary> {
+        this.assertOpen();
+        this.state = service.duplicateOperation(this.state.path, request);
         return this.state;
     }
 

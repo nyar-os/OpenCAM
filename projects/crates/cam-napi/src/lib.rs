@@ -15,7 +15,7 @@ use std::path::Path;
 
 use cam_model::{
     CamError, EstimateRequest, ExportFormat, FeedsRequest, Hole, HolePattern, Island, LeadSettings, OpenCam, Operation,
-    OperationKind, OperationUpdate, PathPoint, PostOptions, Stock, TabSettings, Tool,
+    OperationDuplicate, OperationKind, OperationUpdate, PathPoint, PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -344,7 +344,31 @@ fn operation_remove(ctx: CallContext) -> Result<JsValue> {
     let id = text_field(&request, "id")?;
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;
-    let summary = session.remove_operation(&id).map_err(fail)?;
+    let summary = session.delete_operation(&id).map_err(fail)?;
+    respond(&ctx, &summary)
+}
+
+/// Deletes an operation and saves the document.
+#[function]
+fn operation_delete(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let request = object(&ctx, 1)?;
+    let id = text_field(&request, "id")?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let summary = session.delete_operation(&id).map_err(fail)?;
+    respond(&ctx, &summary)
+}
+
+/// Duplicates an operation after itself and saves the document.
+#[function]
+fn operation_duplicate(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let request = object(&ctx, 1)?;
+    let duplicate = OperationDuplicate { id: text_field(&request, "id")?, new_id: optional_string_field(&request, "newId")? };
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let summary = session.duplicate_operation(&duplicate).map_err(fail)?;
     respond(&ctx, &summary)
 }
 
@@ -501,6 +525,8 @@ register_module![
     tool_import,
     operation_add,
     operation_remove,
+    operation_delete,
+    operation_duplicate,
     operation_list,
     operation_update,
     validate,

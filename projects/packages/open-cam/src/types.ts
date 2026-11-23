@@ -271,6 +271,18 @@ export interface OperationUpdateRequest {
     readonly dwell?: number;
 }
 
+/**
+ * Request of `duplicateOperation()`; the copy keeps every source field.
+ *
+ * The copy is inserted immediately after its source. A missing `newId` takes the
+ * smallest free `op-<n>` identifier; a supplied id must be non-empty and unused.
+ */
+export interface OperationDuplicateRequest {
+    readonly id: string;
+    /** Identifier of the copy; omitted generates the smallest free `op-<n>`. */
+    readonly newId?: string;
+}
+
 /** Summary of one document as written to disk. */
 export interface DocumentSummary {
     readonly id: string;

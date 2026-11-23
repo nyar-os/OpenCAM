@@ -16,6 +16,7 @@ import type {
     ExportReport,
     FeedsReport,
     FeedsRequest,
+    OperationDuplicateRequest,
     OperationListReport,
     OperationRequest,
     OperationUpdateRequest,
@@ -135,6 +136,20 @@ export function addOperation(path: string, request: OperationRequest): DocumentS
 export function removeOperation(path: string, id: string): DocumentSummary {
     return decode<DocumentSummary>(() =>
         binding('operation.remove').operation_remove(path, JSON.stringify({ id })),
+    );
+}
+
+/** Deletes an operation and returns the updated summary. */
+export function deleteOperation(path: string, id: string): DocumentSummary {
+    return decode<DocumentSummary>(() =>
+        binding('operation.delete').operation_delete(path, JSON.stringify({ id })),
+    );
+}
+
+/** Copies an operation after itself and returns the updated summary. */
+export function duplicateOperation(path: string, request: OperationDuplicateRequest): DocumentSummary {
+    return decode<DocumentSummary>(() =>
+        binding('operation.duplicate').operation_duplicate(path, JSON.stringify(request)),
     );
 }
 
