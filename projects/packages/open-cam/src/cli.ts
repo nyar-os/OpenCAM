@@ -464,6 +464,54 @@ operationCommand
         }),
     );
 operationCommand
+    .command('list', 'cli.cmd.operation-list')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'operation list <file>');
+            await withDocument(file, async (document) => {
+                print(await document.listOperations());
+            });
+            return 0;
+        }),
+    );
+operationCommand
+    .command('update', 'cli.cmd.operation-update')
+    .option('--id <id>', 'cli.opt.id')
+    .option('--tool <id>', 'cli.opt.tool')
+    .option('--depth <mm>', 'cli.opt.depth')
+    .option('--stepdown <mm>', 'cli.opt.stepdown')
+    .option('--stepover <mm>', 'cli.opt.stepover')
+    .option('--name <name>', 'cli.opt.name')
+    .option('--peck <mm>', 'cli.opt.peck')
+    .option('--dwell <seconds>', 'cli.opt.dwell')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'operation update <file>');
+            await withDocument(file, async (document) => {
+                const tool = text(options, 'tool');
+                const name = text(options, 'name');
+                const depth = number(ctx, options, '--depth');
+                const stepdown = number(ctx, options, '--stepdown');
+                const stepover = number(ctx, options, '--stepover');
+                const peck = number(ctx, options, '--peck');
+                const dwell = number(ctx, options, '--dwell');
+                print(
+                    await document.updateOperation({
+                        id: required(ctx, options, '--id'),
+                        ...(tool === undefined ? {} : { tool }),
+                        ...(depth === undefined ? {} : { depth }),
+                        ...(stepdown === undefined ? {} : { stepdown }),
+                        ...(stepover === undefined ? {} : { stepover }),
+                        ...(name === undefined ? {} : { name }),
+                        ...(peck === undefined ? {} : { peck }),
+                        ...(dwell === undefined ? {} : { dwell }),
+                    }),
+                );
+            });
+            return 0;
+        }),
+    );
+operationCommand
     .command('remove', 'cli.cmd.operation-remove')
     .option('--id <id>', 'cli.opt.id')
     .actionCtx(async (options, _args, ctx) =>

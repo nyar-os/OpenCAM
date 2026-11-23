@@ -14,6 +14,8 @@
             "tool-import": "merge a portable tool library into the document",
             "operation": "manage machining operations",
             "operation-add": "add a machining operation",
+            "operation-list": "list every operation with its fields and estimated motion time",
+            "operation-update": "change selected fields of one operation",
             "operation-remove": "remove an operation",
             "validate": "validate the document",
             "toolpaths": "generate the toolpath report",
