@@ -26,6 +26,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `pocket` wall finish pass (`finish`) | ✅ supported |
 | `drill` with `G81` and peck `G83` | ✅ supported |
 | `drill` bottom dwell (`dwell`, `G82`) | ✅ supported |
+| `drill` grid and circular hole patterns (`pattern`) | ✅ supported |
 | `engrave` along a polyline (no cutter-radius compensation) | ✅ supported |
 | `engrave` closed polyline (`closed`) | ✅ supported |
 | `contour`, `pocket` and `engrave` ramp entry (`ramp`) | ✅ supported |
@@ -34,6 +35,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | toolpath report (moves, cut/rapid length, cycle time) | ✅ supported |
 | cycle-time estimate report (cut/plunge/retract/traverse/tool-change split) | ✅ supported |
 | tool-grouped operation sequencing (fewest tool changes) | ✅ supported |
+| material-based spindle and feed recommendation (`feeds`) | ✅ supported |
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
@@ -220,6 +222,31 @@ The machine-readable version is printed by `open-cam capabilities` and by
     emits exactly the program of the plain writer, and no option changes a
     coordinate, a feed, an arc or a drilling cycle. A program number of zero, a
     line increment of zero or an unknown coolant reports `post/invalid`.
+18. **Drill patterns.** A `pattern` replaces the explicit `holes` list; a drill
+    that declares both reports `operation/invalid`. A `grid` starts at the
+    operation anchor `(x, y)` and emits `columns × rows` holes in row-major
+    order: `columns` holes along X spaced `spacingX` and `rows` along Y spaced
+    `spacingY`. A `circular` layout centres `count` holes on `(x, y)`, places
+    the first at angle 0 (+X) and runs counter-clockwise on the circle of
+    `radius`, so every generated centre is exactly `radius` from the anchor.
+    Generated holes feed the same drilling cycle, peck and dwell rules, stock
+    check, toolpath report and G-code as an explicit list: one cycle line per
+    hole at the same clearance plane `R`, cancelled once with `G80`. The
+    pattern itself stores no feed, depth or clearance, and an omitted pattern
+    keeps the explicit hole list byte-identical.
+19. **Feeds recommendation.** `feeds` looks up one of six materials and returns
+    a spindle speed and cutting feed for one tool diameter and flute count. The
+    material table fixes a cutting speed in metres per minute — `aluminium` 300,
+    `brass` 200, `steel` 120, `stainless` 60, `plastic` 400, `wood` 500 — and a
+    chip load per tooth by diameter band: at most 3, 6 and 12 mm, then a final
+    band for larger tools. The engine computes
+    `spindle = 1000 × speed / (π × diameter)`, rounds it to the nearest 100 rpm
+    and clamps it to `100 … 24000` rpm, then
+    `feed = spindle × chip load × flutes` and `plunge = 30 % × feed`, each
+    rounded to the nearest 10 mm/min with a floor of 10. `flutes` defaults to
+    two and `"aluminum"` is accepted as an alias of `"aluminium"`, reported
+    under the canonical name. The recommendation reads no document and writes
+    nothing; it is advisory, not a machine or material simulation.
 
 ## Tool library
 
@@ -244,6 +271,10 @@ Each operation emits a comment, `T<n> M6`, `S<spindle> M3`, the moves or cycle,
 `safe_z` is `stock.height + 5` mm. Coordinates render with at most three decimals
 and `-0` is normalised to `0`.
 
+A `drill` operation emits one `G81`, `G82` or `G83` line per hole and cancels the
+cycle once with `G80`. A `pattern` expands to the same cycle lines, one per
+generated hole, without changing the cycle, feed or clearance plane.
+
 Contour lead arcs are the only interpolation the writer emits as `G2`/`G3`: the
 absolute end coordinates plus `I`/`J` centre offsets from the arc start in the
 XY plane, at the cutting feed. Every other move stays `G0` or `G1`.
@@ -264,7 +295,7 @@ a vendor dialect.
 | `stock/invalid` | a stock size is not finite and positive |
 | `tool/invalid`, `tool/duplicate-id` | a tool is malformed or declared twice |
 | `tool/library-invalid` | a tool library file is not JSON, not `open-cam-tools` version 1 in millimetres, or cannot be parsed |
-| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish`, `lead` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `lead` is valid only for `contour`, needs a finite positive `radius` and a `direction` of `cw` or `ccw`, and is rejected together with `ramp`; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck`; `arcs` is valid only for a `circle` contour or pocket and must be `linear` or `arc` |
+| `operation/invalid` | depth, stepdown, stepover, strategy, geometry, holes, peck, `dwell`, tabs, `closed`, `ramp`, `finish`, `lead` or an engrave polyline are invalid; an engrave polyline needs at least two points, may not repeat an adjacent point and, when `closed`, may not end on its first point; `closed` is valid only for `engrave`; tabs are valid only for `contour`, need `count ≥ 1` and a positive `width` and `height`; a rectangular tab set also needs `height ≤ depth` and `count × width` below the profile perimeter `2 × (width + height)`, while a circular tab set needs `count × width` below the tool-centre circumference `2 × pi × (width / 2 + r)`; `ramp` is valid only for `contour`, `pocket` and `engrave` and must be finite and greater than zero; `finish` is valid only for `pocket` and is rejected when the pocket declares islands; `lead` is valid only for `contour`, needs a finite positive `radius` and a `direction` of `cw` or `ccw`, and is rejected together with `ramp`; `dwell` is valid only for `drill`, must be finite and greater than zero, and is rejected together with `peck`; `arcs` is valid only for a `circle` contour or pocket and must be `linear` or `arc`; `pattern` is valid only for `drill`, may not be combined with `holes`, must be `grid` or `circular`, a `grid` needs `rows ≥ 1`, `columns ≥ 1` and positive `spacingX` and `spacingY`, and a `circular` layout needs `count ≥ 1` and a positive `radius` |
 | `operation/duplicate-id` | an operation id is declared twice |
 | `operation/unknown-tool` | an operation references a missing tool |
 | `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
@@ -276,6 +307,8 @@ a vendor dialect.
 | `operation/circle-size` | a `circle` contour or pocket has `height` different from `width` (the diameter) |
 | `path/outside-stock` | a profile, pocket, hole or engrave path point leaves the stock |
 | `post/invalid` | a G-code post option is invalid: a program number of zero, a line increment of zero or an unknown coolant |
+| `feeds/invalid` | the feed recommendation request has a diameter that is not finite and positive, or a flute count of zero |
+| `feeds/unknown-material` | the feed recommendation names a material outside the supported table |
 
 Warnings (`tool/none`, `operation/none`, `tool/duplicate-number`, contour offset
 outside the stock) do not make `ok` false.
@@ -298,12 +331,14 @@ outside the stock) do not make `ok` false.
 | `tests/arcs.rs` | opt-in byte identity, two `G3` half arcs per pocket ring and contour level, tab intervals as arcs between the lifts, arc lengths below a half circle, validation codes, determinism and round trip |
 | `tests/tools.rs` | tool-table usage, library export and import round trip, rejection of duplicate ids, bad format, version, units, malformed JSON, invalid tools and a missing file without touching the document |
 | `tests/dwell.rs` | `G82`/`P` and `G80` per hole, no `G4`, no-dwell byte identity, peck and non-drill rejection, invalid values, unchanged toolpath moves, determinism and round trip |
+| `tests/patterns.rs` | grid row-major expansion and `G81` coordinates, circular angles and centre distance, pattern/hole exclusivity, non-drill rejection, invalid grid and circular geometry, unknown kind, generated hole outside the stock, `G83` per generated hole, explicit-hole byte identity, omitted fields, determinism and round trip |
+| `tests/feeds.rs` | documented formula per material and diameter band, spelling alias, default flute count, spindle and feed clamps, unknown material names, invalid diameter and flute count, session parity, serde defaults and determinism |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
 | `tests/post.rs` | default byte identity, empty request defaults, `O` program number placement, line numbering and increment, `M8`/`M7`/`M9` pairing, unchanged moves, `post/invalid` codes and determinism |
 | `tests/sequence.rs` | stable tool grouping, before/after tool-change counts, per-tool order, single-tool and empty documents, source immutability, applied revision and idempotent apply, determinism |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
-| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options and operation sequencing (skipped without the addon) |
+| `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options, operation sequencing, drill patterns and feed recommendations (skipped without the addon) |
 
 ## Limitations
 
@@ -365,4 +400,12 @@ outside the stock) do not make `ok` false.
   shorten travel, merge operations, reorder for fixturing or feature
   dependencies, and it never changes an operation field other than the position
   in the list.
+- Drilling takes an explicit hole list or one generated pattern: a rectangular
+  grid (`columns × rows`) or a full circle of evenly spaced holes. A pattern
+  replaces the list rather than extending it, and there are no staggered,
+  sub-grid, bolt-circle arc or per-hole depth, feed or clearance overrides.
+- `feeds` is one advisory lookup for one tool in one material. It uses a fixed
+  six-material surface-speed and chip-load table, ignores machine rigidity,
+  coolant, radial and axial depth of cut and chatter, and is never stored in the
+  document or applied to a tool automatically.
 - Cycle time is a kinematic estimate, not a machine simulation.

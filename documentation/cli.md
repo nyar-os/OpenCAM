@@ -91,7 +91,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--strategy raster|spiral]
                       [--shape rect|circle] [--arcs linear|arc]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
-                      [--holes <x,y;x,y>] [--peck <d>] [--dwell <seconds>]
+                      [--holes <x,y;x,y>] [--pattern <layout>] [--peck <d>] [--dwell <seconds>]
                       [--island <x,y,w,h>]...
                       [--path <x,y;x,y>]
                       [--tabs <count,width,height>]
@@ -104,12 +104,27 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; optional `--lead` tangential entry and exit arcs; `--shape circle` cuts a circular outside profile, optionally with `--arcs arc`; |
 | `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings with optional `--arcs arc`, repeatable `--island` for rectangles, optional `--finish` wall loop |
-| `drill` | `--holes "x,y;x,y"`, optional `--peck` or `--dwell` |
+| `drill` | `--holes "x,y;x,y"` or `--pattern`, optional `--peck` or `--dwell` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
 
 `--stepdown` defaults to `--depth` (one Z pass). `--stepover` defaults to 70 % of
 the tool diameter for facing and 60 % for pocketing. The operation is validated
 against the stock before it is saved.
+
+`--pattern` is only used by `drill` and replaces `--holes`. Two layouts exist:
+
+| Value | Holes |
+|-------|-------|
+| `grid,rows,columns,spacingX,spacingY` | `columns × rows` holes in row-major order, starting at `--x,--y`: `columns` along X spaced `spacingX`, `rows` along Y spaced `spacingY` |
+| `circular,count,radius` | `count` holes on the circle of `radius` around `--x,--y`, the first at angle 0 (+X), running counter-clockwise |
+
+Every generated hole uses the same stock check, `--peck` and `--dwell` rules and
+G-code cycle as an explicit hole list, and the cycle is cancelled once with
+`G80`. A drill that declares both `--holes` and `--pattern`, a pattern on another
+kind, an unknown layout, a grid with zero rows or columns or a non-positive
+spacing, or a circular layout with zero holes or a non-positive radius reports
+`operation/invalid`; a generated hole outside the stock reports
+`path/outside-stock`. Without `--pattern` the explicit hole list is unchanged.
 
 `--dwell <seconds>` is an optional bottom-of-hole pause for `drill`. Each hole
 then emits `G82 X.. Y.. Z.. R.. P<seconds> F..` instead of `G81 ...` and the
@@ -283,6 +298,27 @@ operation that uses each distinct tool and counted in `toolChanges`.
 program; with the default request the motion time equals the toolpath
 report's `estimatedSeconds` plus `toolChanges × 3`.
 
+## feeds
+
+```shell
+open-cam feeds --material <name> --diameter <mm> [--flutes <n>]
+```
+
+Prints the `open-cam-feeds` recommendation for one tool in one material.
+`--flutes` defaults to `2`. The report carries the canonical `material`, the
+`diameter` and `flutes` used, the table `surfaceSpeed` (m/min), the selected
+`chipLoad` per tooth (mm), and the rounded `spindle` (rpm), `feed` and
+`plungeFeed` (mm/min).
+
+Supported materials are `aluminium` (alias `aluminum`), `brass`, `steel`,
+`stainless`, `plastic` and `wood`. The spindle is
+`1000 × surfaceSpeed / (π × diameter)`, rounded to 100 rpm and clamped to
+`100 … 24000`; the feed is `spindle × chipLoad × flutes` and the plunge feed 30 %
+of it, both rounded to 10 mm/min with a floor of 10. An unknown material reports
+`feeds/unknown-material`; a diameter that is not finite and positive or a flute
+count of zero reports `feeds/invalid`. The recommendation reads no document and
+writes nothing.
+
 ## gcode
 
 ```shell
@@ -389,6 +425,11 @@ open-cam operation add bracket.ocam --id border --kind engrave --tool t2 \
     --depth 0.5 --closed --path "10,10;40,10;40,30;10,30"
 open-cam operation add bracket.ocam --id bore --kind drill --tool t6 \
     --depth 6 --holes "20,20;80,40" --dwell 0.5
+open-cam operation add bracket.ocam --id grid --kind drill --tool t6 \
+    --depth 6 --x 20 --y 20 --pattern grid,3,2,20,15
+open-cam operation add bracket.ocam --id ring --kind drill --tool t6 \
+    --depth 6 --x 60 --y 40 --pattern circular,8,20 --peck 2
+open-cam feeds --material aluminium --diameter 6 --flutes 2
 open-cam operation add bracket.ocam --id floor --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --x 20 --y 20 --width 60 --height 40 --finish
 open-cam operation add bracket.ocam --id profile --kind contour --tool t6 \
