@@ -1,7 +1,8 @@
 # Command line
 
-`open-cam` is the packaged CLI. The Rust binary `ocam` accepts the same commands
-for development and prints the same JSON.
+`open-cam` is the packaged CLI: a TypeScript assembly over the `@wae/open-cam`
+SDK, built with `@wae/commander`. There is no Rust CLI binary; every command
+maps onto an orthogonal Node-API export and prints the same JSON.
 
 ```text
 open-cam <command> [options]

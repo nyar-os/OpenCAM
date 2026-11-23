@@ -6,10 +6,6 @@ publish = false
 description = "Deterministic 2.5-axis CAM document, toolpath generator and G-code writer"
 license = "MPL-2.0"
 
-[[bin]]
-name = "ocam"
-path = "src/bin/ocam.rs"
-
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }

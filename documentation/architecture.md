@@ -21,8 +21,8 @@ projects/sites/homepage        static product site (VMZ)
 4. `gcode` renders the generated moves plus `G81`/`G83` drilling cycles.
 5. `export` writes G-code, JSON, CSV or Markdown through the same atomic writer.
 
-Because the `ocam` binary, the Node-API addon and the SDK all call the same
-session, they cannot disagree about a toolpath or an error code.
+Because the Node-API addon and the SDK both call the same session, they cannot
+disagree about a toolpath or an error code.
 
 ## Invariants
 

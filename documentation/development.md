@@ -6,7 +6,7 @@
 Cargo.toml                     Rust workspace (cam-model, open-cam-napi)
 package.json                   pnpm workspace scripts
 wae.config.ts                  native targets and staging
-projects/crates/cam-model      engine, CLI binary `ocam`
+projects/crates/cam-model      engine
 projects/crates/cam-napi       Node-API addon
 projects/packages/open-cam     TypeScript SDK and `open-cam` CLI
 projects/packages/open-cam-*   per-platform addon placeholders

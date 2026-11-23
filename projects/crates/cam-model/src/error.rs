@@ -5,7 +5,7 @@ use serde::Serialize;
 /// A stable, machine-readable error.
 ///
 /// `code` is the contract used by the CLI and by callers; `message` is meant for
-/// humans and may change. Exit code conventions of the `ocam` binary are:
+/// humans and may change. Exit code conventions of the `open-cam` CLI are:
 /// `0` success, `1` input/validation/IO error, `2` capability not implemented.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

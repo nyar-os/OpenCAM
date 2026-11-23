@@ -28,9 +28,12 @@ the `open-cam` CLI.
 2. **The Node-API layer maps values only.** Each export accepts a path or JSON
    request and returns a JSON string. It must not add defaults that change
    results.
-3. **The TypeScript SDK/CLI must not duplicate domain logic.** It parses
-   arguments, calls native functions, formats output and maps error codes to exit
-   codes (`capability/*` → `2`, other failures → `1`).
+3. **The TypeScript SDK/CLI must not duplicate domain logic.** There is no Rust
+   CLI binary: every feature reaches users as an orthogonal Node-API export, is
+   wrapped by the `new OpenCAM(options?)` SDK and is assembled by the
+   `open-cam` CLI with `@wae/commander`. The CLI parses arguments, calls SDK
+   methods, formats output and maps error codes to exit codes (`capability/*` →
+   `2`, other failures → `1`).
 4. **The capability matrix is the only support claim.** If a feature is not
    marked supported in `documentation/capabilities.md` and `CAPABILITIES_JSON`,
    it is not supported, regardless of an API name.
@@ -65,7 +68,7 @@ into the platform packages. The addon is not committed.
 ## Change checklist
 
 - Search the repository before assuming a command exists; verify flags against
-  `projects/packages/open-cam/src/cli.ts` and `projects/crates/cam-model/src/bin/ocam.rs`.
+  `projects/packages/open-cam/src/cli.ts`.
 - Add or update a test for every behavioural change.
 - Keep the Rust session, Node-API surface, SDK types and CLI in sync when a
   strategy or field is added or removed.

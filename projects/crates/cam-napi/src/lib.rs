@@ -3,7 +3,7 @@
 //! Every export performs one orthogonal operation and returns a JSON string, so
 //! the TypeScript layer owns argument parsing, help text and exit codes. The
 //! document editing, validation, toolpath generation and export calls forward to
-//! `cam-model`'s [`cam_model::OpenCam`] session, which the `ocam` binary also
+//! `cam-model`'s [`cam_model::OpenCam`] session, which the TypeScript SDK also
 //! calls, so the two entry points cannot disagree.
 //!
 //! Bad arguments report `session/argument-invalid`; every other failure keeps
