@@ -34,6 +34,7 @@
 
 #![deny(missing_docs)]
 
+mod drawing;
 mod dxf;
 mod error;
 mod estimate;
@@ -53,6 +54,7 @@ mod toolpath;
 pub mod validate;
 
 pub use crate::{
+    drawing::{Drawing, pdf, svg},
     dxf::{
         DEFAULT_DXF_DEPTH, DEFAULT_DXF_TOLERANCE, DEFAULT_ENGRAVE_TOOL_ID, DXF_IMPORT_FORMAT, DXF_IMPORT_VERSION, DxfImport,
         DxfImportReport, DxfImportRequest, DxfLoss, MAX_ARC_SEGMENTS, MIN_CIRCLE_SEGMENTS, import as import_dxf,
@@ -77,7 +79,7 @@ pub use crate::{
     operation_reorder::{OperationReorder, OperationReorderReport, reorder as operation_reorder},
     operation_update::{OperationUpdate, update as operation_update},
     sequence::{SequenceEntry, SequenceGroup, SequenceReport, plan as sequence_plan, reorder as sequence_reorder},
-    session::{DEFAULT_STOCK, DocumentSummary, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
+    session::{DEFAULT_STOCK, DocumentSummary, DrawingReport, ExportFormat, ExportReport, OpenCam, Report, ToolImportReport},
     toolpath::{CLEARANCE, Move, MoveKind, OperationPath, RAPID_FEED, ToolpathReport, generate as generate_toolpaths},
     validate::{Issue, Severity, ValidationReport},
 };
@@ -123,6 +125,8 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "json": "supported",
     "csv": "supported",
     "md": "supported",
+    "svg": "supported",
+    "pdf": "supported",
     "toolLibrary": "supported",
     "gcodePost": "supported",
     "step": "unsupported",

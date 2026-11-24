@@ -11,7 +11,14 @@ fn empty_document_exports_report_clean_errors_or_write_content() {
     fs::create_dir_all(&directory).expect("the temp directory exists");
     let mut session = OpenCam::new();
     session.create(&directory.join("empty.ocam")).expect("an empty document is created");
-    for format in [ExportFormat::Gcode, ExportFormat::Csv, ExportFormat::Md, ExportFormat::Json] {
+    for format in [
+        ExportFormat::Gcode,
+        ExportFormat::Csv,
+        ExportFormat::Md,
+        ExportFormat::Json,
+        ExportFormat::Svg,
+        ExportFormat::Pdf,
+    ] {
         let target = directory.join(format!("empty.{}", format.as_str()));
         let report = session
             .export(format, &target)

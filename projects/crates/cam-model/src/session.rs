@@ -66,6 +66,10 @@ pub enum ExportFormat {
     Csv,
     /// A Markdown toolpath report.
     Md,
+    /// A vector SVG toolpath drawing.
+    Svg,
+    /// A one-page PDF toolpath drawing.
+    Pdf,
 }
 
 impl ExportFormat {
@@ -76,7 +80,14 @@ impl ExportFormat {
             Self::Json => "json",
             Self::Csv => "csv",
             Self::Md => "md",
+            Self::Svg => "svg",
+            Self::Pdf => "pdf",
         }
+    }
+
+    /// Returns `true` for the vector drawing formats.
+    pub const fn is_drawing(self) -> bool {
+        matches!(self, Self::Svg | Self::Pdf)
     }
 }
 
@@ -89,10 +100,12 @@ impl FromStr for ExportFormat {
             "json" => Ok(Self::Json),
             "csv" => Ok(Self::Csv),
             "md" | "markdown" => Ok(Self::Md),
+            "svg" => Ok(Self::Svg),
+            "pdf" => Ok(Self::Pdf),
             "step" | "stp" | "dxf" => Err(crate::not_implemented(&format!("`{value}` export"))),
             other => Err(CamError::new(
                 "cli/unknown-format",
-                format!("unknown export format `{other}`; only gcode, json, csv or md is supported"),
+                format!("unknown export format `{other}`; only gcode, json, csv, md, svg or pdf is supported"),
             )),
         }
     }
@@ -110,6 +123,21 @@ pub struct ExportReport {
     pub files: Vec<String>,
     /// Number of bytes written.
     pub bytes: usize,
+    /// Non-ASCII characters the format replaced with `?`; `0` for every
+    /// format except PDF.
+    pub dropped: usize,
+}
+
+/// Report returned by [`OpenCam::drawing`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawingReport {
+    /// Drawing format, `svg` or `pdf`.
+    pub format: String,
+    /// Rendered sheet text, ready to write unchanged.
+    pub text: String,
+    /// Non-ASCII characters replaced by `?`; `0` for SVG.
+    pub dropped: usize,
 }
 
 /// Report returned by [`OpenCam::import_tool_library`].
@@ -311,6 +339,7 @@ impl OpenCam {
             path: target.display().to_string(),
             files: vec![target.display().to_string()],
             bytes: text.len(),
+            dropped: 0,
         })
     }
 
@@ -485,13 +514,24 @@ impl OpenCam {
     pub fn export(&self, format: ExportFormat, target: &Path) -> Result<ExportReport, CamError> {
         let document = self.document()?;
         let report = toolpath::generate(document)?;
-        let text = match format {
-            ExportFormat::Gcode => gcode::render(document)?,
-            ExportFormat::Json => {
-                serde_json::to_string_pretty(&report).map_err(|error| CamError::new("document/serialize", error.to_string()))?
+        let id = self.id();
+        let (text, dropped) = match format {
+            ExportFormat::Gcode => (gcode::render(document)?, 0),
+            ExportFormat::Json => (
+                serde_json::to_string_pretty(&report)
+                    .map_err(|error| CamError::new("document/serialize", error.to_string()))?,
+                0,
+            ),
+            ExportFormat::Csv => (segments_csv(&report), 0),
+            ExportFormat::Md => (markdown(document, &report), 0),
+            ExportFormat::Svg => {
+                let drawing = crate::drawing::svg(document, &report, &id);
+                (drawing.text, drawing.dropped)
             }
-            ExportFormat::Csv => segments_csv(&report),
-            ExportFormat::Md => markdown(document, &report),
+            ExportFormat::Pdf => {
+                let drawing = crate::drawing::pdf(document, &report, &id);
+                (drawing.text, drawing.dropped)
+            }
         };
         write_atomic(target, &text)?;
         Ok(ExportReport {
@@ -499,7 +539,30 @@ impl OpenCam {
             path: target.display().to_string(),
             files: vec![target.display().to_string()],
             bytes: text.len(),
+            dropped,
         })
+    }
+
+    /// Renders the open document as a vector drawing without writing it.
+    ///
+    /// Only the drawing formats [`ExportFormat::Svg`] and [`ExportFormat::Pdf`]
+    /// are accepted; the text is returned unchanged so the CLI can send it to
+    /// `--out` or stdout.
+    pub fn drawing(&self, format: ExportFormat) -> Result<DrawingReport, CamError> {
+        if !format.is_drawing() {
+            return Err(CamError::new(
+                "export/not-drawing",
+                format!("`{}` is not a drawing format; use svg or pdf", format.as_str()),
+            ));
+        }
+        let document = self.document()?;
+        let report = toolpath::generate(document)?;
+        let id = self.id();
+        let drawing = match format {
+            ExportFormat::Pdf => crate::drawing::pdf(document, &report, &id),
+            _ => crate::drawing::svg(document, &report, &id),
+        };
+        Ok(DrawingReport { format: format.as_str().to_string(), text: drawing.text, dropped: drawing.dropped })
     }
 
     /// Returns the summary, validation, toolpaths and G-code size of the document.
@@ -524,9 +587,8 @@ impl OpenCam {
     pub fn summary(&self) -> Result<DocumentSummary, CamError> {
         let document = self.document()?;
         let path = self.path.as_ref().ok_or_else(no_document)?;
-        let id = path.file_stem().and_then(|value| value.to_str()).unwrap_or("document").to_string();
         Ok(DocumentSummary {
-            id,
+            id: self.id(),
             path: path.display().to_string(),
             units: document.units.clone(),
             revision: document.revision,
@@ -534,6 +596,11 @@ impl OpenCam {
             tools: document.tools.len(),
             operations: document.operations.len(),
         })
+    }
+
+    /// File stem of the open document, used as the drawing id.
+    fn id(&self) -> String {
+        self.path.as_ref().and_then(|path| path.file_stem()).and_then(|value| value.to_str()).unwrap_or("document").to_string()
     }
 
     fn document(&self) -> Result<&CamDocument, CamError> {
