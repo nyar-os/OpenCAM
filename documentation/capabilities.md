@@ -46,6 +46,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
+| SVG toolpath drawing (stock, cuts, rapids, markers, legend, title block) | ✅ supported |
+| PDF toolpath drawing (one A4 landscape page, fitted and centred) | ✅ supported |
 | generic absolute-millimetre G-code | ✅ supported |
 | 3D surfacing, STL/solid input | ❌ not implemented |
 | adaptive clearing | ❌ not implemented |
@@ -322,7 +324,30 @@ The machine-readable version is printed by `open-cam capabilities` and by
     nothing and keeps the revision, while a successful move is saved atomically,
     bumps the revision once and returns a report with `changed: true` and the
     saved revision.
-25. **DXF import.** `import dxf` reads the `ENTITIES` section of an ASCII DXF
+26. **Vector drawings.** `export svg` and `export pdf` project the stock and the
+    moves of the toolpath report onto one sheet; no toolpath is regenerated.
+    The stock rectangle is drawn with its width × depth × height label, every
+    cutting move becomes a polyline per operation, rapid `G0` moves become light
+    dashed lines (a vertical rapid has no XY extent and is skipped), each plunge
+    point becomes a dot and the first non-rapid move of an operation gets a ring.
+    An `arc` move is sampled at the engine's ring resolution (72 chords per turn)
+    from its `from`, `to` and `centre`, and the exact move endpoint is appended,
+    so the drawing matches the linear ring output without a new tolerance.
+    Operation colours follow the document index through a fixed eight-colour
+    palette, so equal documents produce equal colours. The legend explains the
+    cutting, rapid and plunge/start symbols and names every operation with its
+    kind, id and tool diameter/radius. The title block carries the document id
+    (file stem), revision, units, operation count, estimated time and scale.
+    SVG uses a millimetre `viewBox` at 8 px per millimetre. PDF is one A4
+    landscape page (842 × 595 pt) with Helvetica, `1 mm = 2.834646 pt`, fitted
+    and centred above the legend and title block; the title block reports the
+    resulting percentage of 1:1. Coordinates are rounded to three decimals and
+    `-0` is normalised, operations keep document order and no timestamp is
+    written, so repeated runs are byte-identical. An empty document still
+    produces a valid empty sheet with the stock and title block. PDF text is
+    ASCII-only: every non-ASCII character becomes `?` and is counted in the
+    report's `dropped` field. SVG is XML with escaped text and keeps Unicode.
+27. **DXF import.** `import dxf` reads the `ENTITIES` section of an ASCII DXF
     file and turns every supported 2D entity into one `engrave` operation that
     references a fixed `engrave` tool (0.2 mm, 12 000 rpm, 300 mm/min feed,
     100 mm/min plunge). Supported entities are `LINE`, `LWPOLYLINE` (including
@@ -454,8 +479,10 @@ outside the stock) do not make `ok` false.
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
 | `tests/dxf.rs` | LINE, closed LWPOLYLINE, POLYLINE vertices, ARC and CIRCLE flattening, segment counts and exact endpoints, sagitta tolerance, layer-derived ids, derived stock, loss reporting, malformed groups and entities with line numbers, units, determinism, revision 0 and existing-target rejection |
+| `tests/drawing.rs` | SVG structure, `viewBox`, stock/operations/legend/title block, XML escaping, rapid dashes and cut polylines, start and plunge markers, PDF 1.4 MediaBox and single page, determinism, empty document and PDF-only non-ASCII loss |
 | `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options, operation sequencing, drill patterns and feed recommendations (skipped without the addon) |
 | `tests/dxf.test.ts` (TypeScript) | DXF import report and loss list, written engrave operations, existing-target rejection, CLI success output and CLI malformed-group failure (skipped without the addon) |
+| `tests/drawing.test.ts` (TypeScript) | SDK SVG/PDF rendering and loss reporting, `exportDocument('svg')` byte parity, CLI stdout drawing and `--out` report (skipped without the addon) |
 
 ## Limitations
 
@@ -546,3 +573,14 @@ outside the stock) do not make `ok` false.
   coolant, radial and axial depth of cut and chatter, and is never stored in the
   document or applied to a tool automatically.
 - Cycle time is a kinematic estimate, not a machine simulation.
+- SVG and PDF export are preview drawings, not dimensioned shop drawings: they
+  carry no dimensions, tolerances, annotations, multiple views, layers, hidden
+  lines or raster images. Only the stock outline, the generated XY toolpath
+  (projected; Z is not drawn), rapid traverses, plunge/start markers, a legend
+  and a title block are shown. Arc moves are sampled as polylines at 72 chords
+  per turn; the drawing does not emit SVG/PDF arc operators. PDF text uses
+  base-14 Helvetica and is ASCII-only, so non-ASCII operation ids or document
+  names become `?` (reported as `dropped`); SVG keeps Unicode. SVG is a single
+  `viewBox` at a fixed 8 px/mm and PDF is always one fitted A4 landscape page,
+  so page size, scale, orientation and colours are not configurable, and a
+  drawing never replaces the G-code or the JSON/CSV/Markdown reports.

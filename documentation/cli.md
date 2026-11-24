@@ -510,7 +510,7 @@ feed.
 ## export
 
 ```shell
-open-cam export <file> --format gcode|json|csv|md --out <path>
+open-cam export <file> --format gcode|json|csv|md|svg|pdf [--out <path>]
 ```
 
 | Format | Content |
@@ -519,6 +519,35 @@ open-cam export <file> --format gcode|json|csv|md --out <path>
 | `json` | the toolpath report |
 | `csv` | one row per move: operation, kind, from/to, length, feed |
 | `md` | a Markdown stock/tool/operation summary |
+| `svg` | a vector toolpath drawing with a millimetre `viewBox` at 8 px/mm |
+| `pdf` | the same drawing as a one-page A4 landscape PDF 1.4 |
+
+`--out` is required for `gcode`, `json`, `csv` and `md`. An `svg` or `pdf`
+drawing is written to `--out` when given and printed to stdout otherwise, so it
+can be piped or redirected. With `--out`, the command prints the usual report
+(`format`, `path`, `files`, `bytes` and `dropped`); a drawing sent to stdout is
+printed unchanged. `dropped` counts non-ASCII characters the PDF font replaced
+with `?`; the CLI also prints that count to stderr. SVG keeps Unicode.
+
+The drawing is rendered from the toolpath report, never recomputed:
+
+- the stock rectangle with its width × depth × height label;
+- one cutting polyline per operation, in a stable palette by operation index
+  (`face`/`contour`/… colours follow the list position, not the clock);
+- rapid `G0` moves as light dashed lines;
+- a ring at the operation start and a dot at every plunge point;
+- a legend that names cutting moves, rapid moves, plunge/start points and one
+  row per operation with its kind, id and tool diameter/radius;
+- a title block with the document id, revision, units, operation count,
+  estimated time and scale (SVG is 1:1 at 8 px/mm; PDF is fitted to the page and
+  prints the resulting percentage).
+
+Arc moves are drawn as polylines sampled at the engine's ring resolution
+(72 chords per turn) with the exact move endpoint, so the drawing matches the
+linear ring output. Coordinates are rounded to three decimals, operations keep
+document order and no timestamp is written, so two runs are byte-identical. An
+empty document still produces a valid empty sheet with the stock and title
+block. PDF text is ASCII-only and uses Helvetica.
 
 `export --format step` and `export --format dxf` are declared but unimplemented
 and exit with code `2`; DXF input is available through `import dxf`.
@@ -590,4 +619,7 @@ open-cam toolpaths bracket.ocam
 open-cam sequence bracket.ocam --apply
 open-cam gcode bracket.ocam --out bracket.nc
 open-cam gcode bracket.ocam --program-number 1001 --line-numbers --coolant flood
+open-cam export bracket.ocam --format svg --out bracket.svg
+open-cam export bracket.ocam --format pdf --out bracket.pdf
+open-cam export bracket.ocam --format svg > bracket.svg
 ```
