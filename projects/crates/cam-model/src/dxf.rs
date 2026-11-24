@@ -250,7 +250,8 @@ fn read_groups(text: &str) -> Result<Vec<Group>, CamError> {
             return Err(malformed_group(index + 1, "a group code is missing (blank line)"));
         }
         let code = raw.parse::<i32>().map_err(|_| malformed_group(index + 1, format!("`{raw}` is not a DXF group code")))?;
-        let Some(value) = lines.get(index + 1) else {
+        let Some(value) = lines.get(index + 1)
+        else {
             return Err(malformed_group(index + 1, "the file ends before the group value"));
         };
         groups.push(Group { code, value: value.trim().to_string(), line: index + 1 });
@@ -303,7 +304,8 @@ fn scan_sections(groups: &[Group], losses: &mut Vec<DxfLoss>) -> Result<Vec<RawE
             index += 1;
             continue;
         }
-        let Some(name_group) = groups.get(index + 1).filter(|next| next.code == 2) else {
+        let Some(name_group) = groups.get(index + 1).filter(|next| next.code == 2)
+        else {
             return Err(malformed_group(group.line, "a SECTION is not followed by a group 2 name"));
         };
         let name = name_group.value.as_str();
@@ -337,7 +339,8 @@ fn split_entities(groups: &[Group]) -> Vec<RawEntity> {
                 entities.push(entity);
             }
             current = Some(RawEntity { name: group.value.clone(), line: group.line, groups: Vec::new() });
-        } else if let Some(entity) = current.as_mut() {
+        }
+        else if let Some(entity) = current.as_mut() {
             entity.groups.push(group.clone());
         }
     }
@@ -361,7 +364,8 @@ fn parse_lwpolyline(raw: &RawEntity, losses: &mut Vec<DxfLoss>) -> Result<Option
         match group.code {
             10 => vertices.push((Some(parse_number(group, "LWPOLYLINE vertex X")?), None)),
             20 => {
-                let Some(vertex) = vertices.last_mut() else {
+                let Some(vertex) = vertices.last_mut()
+                else {
                     return Err(malformed_entity(group.line, "LWPOLYLINE has a Y vertex without an X vertex"));
                 };
                 vertex.1 = Some(parse_number(group, "LWPOLYLINE vertex Y")?);
@@ -381,10 +385,12 @@ fn parse_lwpolyline(raw: &RawEntity, losses: &mut Vec<DxfLoss>) -> Result<Option
     }
     let mut points = Vec::with_capacity(vertices.len());
     for (index, vertex) in vertices.iter().enumerate() {
-        let Some(x) = vertex.0 else {
+        let Some(x) = vertex.0
+        else {
             return Err(malformed_entity(raw.line, format!("LWPOLYLINE vertex {index} has no X (group 10)")));
         };
-        let Some(y) = vertex.1 else {
+        let Some(y) = vertex.1
+        else {
             return Err(malformed_entity(raw.line, format!("LWPOLYLINE vertex {index} has no Y (group 20)")));
         };
         points.push((x, y));
@@ -552,7 +558,8 @@ fn slug(layer: &str) -> String {
         if character.is_ascii_alphanumeric() {
             slug.push(character.to_ascii_lowercase());
             dash = false;
-        } else if !dash {
+        }
+        else if !dash {
             slug.push('-');
             dash = true;
         }

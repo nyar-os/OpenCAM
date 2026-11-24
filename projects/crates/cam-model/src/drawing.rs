@@ -373,7 +373,8 @@ fn flush(chain: &mut Vec<(f64, f64)>, cuts: &mut Vec<Vec<(f64, f64)>>) {
 /// The endpoint is taken from the move itself, so the polyline closes exactly
 /// on the point the generator emitted.
 fn append_arc(points: &mut Vec<(f64, f64)>, movement: &Move) {
-    let Some(arc) = &movement.arc else {
+    let Some(arc) = &movement.arc
+    else {
         points.push((movement.to.x, movement.to.y));
         return;
     };
