@@ -11,6 +11,8 @@ import { nativeBinding } from './native.js';
 import type {
     CycleTimeReport,
     DocumentSummary,
+    DrawingFormat,
+    DrawingReport,
     DxfImportReport,
     DxfImportRequest,
     EstimateRequest,
@@ -216,9 +218,14 @@ export function feeds(request: FeedsRequest): FeedsReport {
     return decode<FeedsReport>(() => binding('feeds').feeds(JSON.stringify(request)));
 }
 
-/** Exports a document as `gcode`, `json`, `csv` or `md`. */
+/** Exports a document as `gcode`, `json`, `csv`, `md`, `svg` or `pdf`. */
 export function exportDocument(path: string, format: ExportFormat, target: string): ExportReport {
     return decode<ExportReport>(() => binding('export').export(path, format, target));
+}
+
+/** Renders a document as an `svg` or `pdf` drawing without writing it. */
+export function drawing(path: string, format: DrawingFormat): DrawingReport {
+    return decode<DrawingReport>(() => binding('drawing').drawing(path, format));
 }
 
 /** Returns the full report of a document. */

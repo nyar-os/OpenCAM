@@ -115,7 +115,7 @@ function exportFormat(ctx: CommandContext, value: string): ExportFormat {
     if (value === 'gcode' || value === 'nc' || value === 'tap') {
         return 'gcode';
     }
-    if (value === 'json' || value === 'csv' || value === 'md') {
+    if (value === 'json' || value === 'csv' || value === 'md' || value === 'svg' || value === 'pdf') {
         return value;
     }
     if (value === 'step' || value === 'stp' || value === 'dxf') {
@@ -712,13 +712,22 @@ cli
 
 cli
     .command('export', 'cli.cmd.export')
-    .option('--format <gcode|json|csv|md>', 'cli.opt.format')
+    .option('--format <gcode|json|csv|md|svg|pdf>', 'cli.opt.format')
     .option('--out <path>', 'cli.opt.out')
     .actionCtx(async (options, _args, ctx) =>
         guard(ctx, async () => {
-            const file = positional(ctx, options, 'export <file> --format <format> --out <path>');
+            const file = positional(ctx, options, 'export <file> --format <format> [--out <path>]');
             await withDocument(file, async (document) => {
                 const format = exportFormat(ctx, text(options, 'format') ?? 'gcode');
+                const target = text(options, 'out');
+                if (target === undefined && (format === 'svg' || format === 'pdf')) {
+                    const drawing = await document.renderDrawing(format);
+                    process.stdout.write(drawing.text);
+                    if (drawing.dropped > 0) {
+                        ctx.stderr(ctx.t('cli.warn.droppedCharacters', { count: String(drawing.dropped) }));
+                    }
+                    return;
+                }
                 print(await document.exportDocument(format, required(ctx, options, '--out')));
             });
             return 0;

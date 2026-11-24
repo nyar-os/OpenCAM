@@ -524,7 +524,7 @@ fn feeds(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &report)
 }
 
-/// Exports a document as `gcode`, `json`, `csv` or `md`.
+/// Exports a document as `gcode`, `json`, `csv`, `md`, `svg` or `pdf`.
 #[function]
 fn export(ctx: CallContext) -> Result<JsValue> {
     let path = text(&ctx, 0)?;
@@ -533,6 +533,17 @@ fn export(ctx: CallContext) -> Result<JsValue> {
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;
     let report = session.export(format, Path::new(&target)).map_err(fail)?;
+    respond(&ctx, &report)
+}
+
+/// Renders a document as an `svg` or `pdf` drawing and returns its text.
+#[function]
+fn drawing(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let format = text(&ctx, 1)?.parse::<ExportFormat>().map_err(fail)?;
+    let mut session = OpenCam::new();
+    session.open(Path::new(&path)).map_err(fail)?;
+    let report = session.drawing(format).map_err(fail)?;
     respond(&ctx, &report)
 }
 
@@ -574,5 +585,6 @@ register_module![
     sequence_apply,
     feeds,
     export,
+    drawing,
     report
 ];

@@ -25,8 +25,11 @@ export type ArcMode = 'linear' | 'arc';
 /** Coolant mode of the G-code program. */
 export type CoolantMode = 'off' | 'flood' | 'mist';
 
+/** Vector drawing formats rendered from the generated toolpath. */
+export type DrawingFormat = 'svg' | 'pdf';
+
 /** Export formats `exportDocument()` can write. */
-export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md';
+export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md' | DrawingFormat;
 
 /** Severity of a validation finding. */
 export type Severity = 'error' | 'warning' | 'notice';
@@ -508,6 +511,17 @@ export interface ExportReport {
     readonly path: string;
     readonly files: readonly string[];
     readonly bytes: number;
+    /** Non-ASCII characters written as `?`; always `0` except for PDF. */
+    readonly dropped: number;
+}
+
+/** Result of `renderDrawing()`. */
+export interface DrawingReport {
+    readonly format: DrawingFormat;
+    /** Rendered sheet text, written unchanged by the CLI. */
+    readonly text: string;
+    /** Non-ASCII characters replaced by `?`; `0` for SVG. */
+    readonly dropped: number;
 }
 
 /** Result of `exportTools()`. */

@@ -27,7 +27,7 @@
             "feeds": "recommend spindle and feed rates for a material and tool diameter",
             "gcode": "render the G-code program",
             "sequence": "plan or apply a tool-grouped operation order",
-            "export": "export G-code, JSON, CSV or Markdown",
+            "export": "export G-code, JSON, CSV, Markdown, an SVG drawing or a PDF drawing",
             "report": "print the full report"
         },
         "opt": {
@@ -72,17 +72,20 @@
             "line-increment": "distance between two line numbers (default 10)",
             "coolant": "coolant mode: off, flood (`M8`) or mist (`M7`)",
             "apply": "reorder and save the document instead of only printing the plan",
-            "out": "write the result to this path",
+            "out": "write the result to this path (SVG and PDF drawings print to stdout when omitted)",
             "from": "file to import (a tool library or an ASCII DXF drawing)",
             "tolerance": "maximum chord sagitta when flattening DXF arcs and circles, in millimetres (default 0.05)",
-            "format": "export format: gcode, json, csv or md"
+            "format": "export format: gcode, json, csv, md, svg or pdf"
+        },
+        "warn": {
+            "droppedCharacters": "the drawing replaced {count} non-ASCII character(s) with `?`"
         },
         "error": {
             "missingArgument": "missing argument; usage: open-cam {usage}",
             "missingOption": "option `{option}` is required",
             "invalidNumber": "option `{option}` is not a number: `{value}`",
             "unknownArcMode": "unknown arc mode `{value}`; only linear or arc is supported",
-            "unknownFormat": "unknown export format `{format}`; only gcode, json, csv or md is supported"
+            "unknownFormat": "unknown export format `{format}`; only gcode, json, csv, md, svg or pdf is supported"
         }
     }
 }

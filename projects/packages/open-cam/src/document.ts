@@ -12,6 +12,8 @@ import * as service from './service.js';
 import type {
     CycleTimeReport,
     DocumentSummary,
+    DrawingFormat,
+    DrawingReport,
     EstimateRequest,
     ExportFormat,
     ExportReport,
@@ -206,10 +208,16 @@ export class CamDocument {
         return report;
     }
 
-    /** Exports the document as `gcode`, `json`, `csv` or `md`. */
+    /** Exports the document as `gcode`, `json`, `csv`, `md`, `svg` or `pdf`. */
     async exportDocument(format: ExportFormat, target: string): Promise<ExportReport> {
         this.assertOpen();
         return service.exportDocument(this.state.path, format, target);
+    }
+
+    /** Renders the document as an `svg` or `pdf` toolpath drawing without writing it. */
+    async renderDrawing(format: DrawingFormat): Promise<DrawingReport> {
+        this.assertOpen();
+        return service.drawing(this.state.path, format);
     }
 
     /** Returns the full report. */
