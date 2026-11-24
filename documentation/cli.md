@@ -21,6 +21,42 @@ Writes a new document with `open-cam` format version 1, units `mm`, revision 0,
 a 100 × 100 × 10 mm stock and no tools. An existing file is rejected with
 `file/exists`.
 
+## import dxf
+
+```shell
+open-cam import dxf <file.ocam> --from <drawing.dxf>
+                     [--depth <mm>] [--stepdown <mm>] [--tolerance <mm>]
+```
+
+Creates a new document from an ASCII DXF drawing; the target must not exist.
+Supported 2D entities are `LINE`, `LWPOLYLINE`, `POLYLINE` with its `VERTEX`
+records, `ARC` and `CIRCLE`; each becomes one `engrave` operation named after
+its DXF layer with id `<layer slug>-<n>`. The import uses one fixed `engrave`
+tool (0.2 mm, 12 000 rpm, 300 mm/min feed, 100 mm/min plunge). Arcs and circles
+are flattened with a deterministic chord sagitta tolerance: `--tolerance`
+defaults to the documented constant `0.05` mm. `--depth` defaults to `1` mm and
+`--stepdown` to `--depth`. The drawing is translated so the minimum X and Y are
+`0`; stock width and depth follow its bounding box (minimum 1 mm) and height is
+`max(bounding-box depth, depth) + 5` mm. The new document keeps revision `0`.
+
+The JSON report carries `format` (`open-cam-dxf-import`), `version`, `units`,
+`source`, `path`, `insUnits`, `sourceUnits`, `tolerance`, `depth`, `stepdown`,
+`entityCount`, `operationCount`, `skippedCount`, `losses` and the written
+`document` summary. `$INSUNITS` is reported, never converted: `4` is
+`millimetres`, `0` is `unitless`, a missing header is `unspecified`, and any
+other value is read as millimetres and reported as
+`import/dxf-unsupported-units`.
+
+Unsupported entity types (`SPLINE`, `ELLIPSE`, `HATCH`, `INSERT`/blocks, …),
+every section other than `HEADER` and `ENTITIES`, a non-zero `LWPOLYLINE` bulge
+and an entity with no usable geometry are skipped into `losses` with
+`import/dxf-unsupported-entity`, `import/dxf-unsupported-section`,
+`import/dxf-bulge-ignored` or `import/dxf-empty-entity`; they never fail the
+import. A malformed group code reports `import/dxf-malformed-group` and a
+supported entity with missing or invalid values reports
+`import/dxf-malformed-entity`, both with the 1-based source line. A failed
+import writes nothing.
+
 ## stock
 
 ```shell
@@ -484,7 +520,8 @@ open-cam export <file> --format gcode|json|csv|md --out <path>
 | `csv` | one row per move: operation, kind, from/to, length, feed |
 | `md` | a Markdown stock/tool/operation summary |
 
-`step` and `dxf` are declared but unimplemented and exit with code `2`.
+`export --format step` and `export --format dxf` are declared but unimplemented
+and exit with code `2`; DXF input is available through `import dxf`.
 
 ## report
 
@@ -506,6 +543,7 @@ Prints the machine-readable capability matrix.
 
 ```shell
 open-cam create bracket.ocam
+open-cam import dxf logo.ocam --from logo.dxf --depth 0.5 --tolerance 0.02
 open-cam stock bracket.ocam --width 120 --depth 80 --height 12
 open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 --plunge 300
 open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \

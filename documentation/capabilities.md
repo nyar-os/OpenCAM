@@ -42,6 +42,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | operation duplication (every field copied, inserted after the source, generated `op-N`) | ✅ supported |
 | operation reordering (final 0-based index, same-index no-op keeps the revision) | ✅ supported |
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
+| DXF import, ASCII 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE` → one `engrave` operation each | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
@@ -50,7 +51,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | adaptive clearing | ❌ not implemented |
 | turning | ❌ not implemented |
 | four-axis and five-axis work | ❌ not implemented |
-| STEP / DXF import | ❌ not implemented |
+| STEP import | ❌ not implemented |
+| DXF export | ❌ not implemented |
 | vendor post-processors | ❌ not implemented |
 
 ## Algorithms
@@ -320,6 +322,37 @@ The machine-readable version is printed by `open-cam capabilities` and by
     nothing and keeps the revision, while a successful move is saved atomically,
     bumps the revision once and returns a report with `changed: true` and the
     saved revision.
+25. **DXF import.** `import dxf` reads the `ENTITIES` section of an ASCII DXF
+    file and turns every supported 2D entity into one `engrave` operation that
+    references a fixed `engrave` tool (0.2 mm, 12 000 rpm, 300 mm/min feed,
+    100 mm/min plunge). Supported entities are `LINE`, `LWPOLYLINE` (including
+    the closed flag), `POLYLINE` with its following `VERTEX` records until
+    `SEQEND`, `ARC` and `CIRCLE`; Z coordinates are ignored. Arcs and circles are
+    flattened with a deterministic sagitta tolerance (`tolerance`, default
+    0.05 mm): the chord angle is `2·acos(1 − tolerance / radius)`, clamped to at
+    most 4096 chords, and a circle always gets at least three. An `ARC` runs
+    counter-clockwise from group 50 to 51 and an equal start and end angle is a
+    full circle. The DXF layer names the operation: the name is the layer and the
+    id is `<layer slug>-<n>` with the 1-based imported-entity ordinal, so the
+    layer mapping is deterministic. The drawing is translated so its bounding
+    box minimum is `(0, 0)`; stock width and depth follow the bounding box
+    (minimum 1 mm) and height is `max(bbox depth, depth) + 5` mm, so the imported
+    document always validates. `$INSUNITS` is reported, never converted:
+    `4` is `millimetres`, `0` is `unitless`, a missing header is `unspecified`;
+    any other value is reported as a loss and read as millimetres. Every
+    section other than `HEADER` and `ENTITIES`, every unsupported entity
+    (`SPLINE`, `ELLIPSE`, `HATCH`, `INSERT`/blocks, …), a non-zero `LWPOLYLINE`
+    bulge and an entity with no usable geometry become a loss with a stable code
+    and line number instead of an error. Adjacent duplicate vertices are merged
+    (1 µm) and a closed polyline that repeats its first vertex at the end is
+    normalised. The import creates a new document at revision `0` and writes it
+    atomically once; an existing target reports `file/exists`, a malformed group
+    code reports `import/dxf-malformed-group`, and a supported entity with
+    missing or invalid values reports `import/dxf-malformed-entity`, each with
+    its 1-based source line. The report carries the source and target paths,
+    `insUnits`, `sourceUnits`, tolerance, depth, stepdown,
+    entity/operation/skipped counts, every loss and the written document
+    summary.
 
 ## Tool library
 
@@ -379,6 +412,9 @@ a vendor dialect.
 | `operation/strategy-island` | a `spiral` pocket declares islands, or a `circle` pocket declares islands, which the strategy does not support |
 | `operation/strategy-circle` | a `circle` pocket declares an explicit `strategy`, which only `rect` pockets accept |
 | `operation/circle-size` | a `circle` contour or pocket has `height` different from `width` (the diameter) |
+| `import/invalid` | a `depth`, `stepdown` or `tolerance` import request value is not finite and greater than zero |
+| `import/dxf-malformed-group` | the ASCII DXF has a group code that is not an integer, a blank code line, a group without a value or a section without a name or `ENDSEC`; the message carries the 1-based line |
+| `import/dxf-malformed-entity` | a supported DXF entity is missing a required group or has a non-numeric or non-positive value; the message carries the 1-based line |
 | `path/outside-stock` | a profile, pocket, hole or engrave path point leaves the stock |
 | `post/invalid` | a G-code post option is invalid: a program number of zero, a line increment of zero or an unknown coolant |
 | `feeds/invalid` | the feed recommendation request has a diameter that is not finite and positive, or a flute count of zero |
@@ -417,7 +453,9 @@ outside the stock) do not make `ok` false.
 | `tests/sequence.rs` | stable tool grouping, before/after tool-change counts, per-tool order, single-tool and empty documents, source immutability, applied revision and idempotent apply, determinism |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
+| `tests/dxf.rs` | LINE, closed LWPOLYLINE, POLYLINE vertices, ARC and CIRCLE flattening, segment counts and exact endpoints, sagitta tolerance, layer-derived ids, derived stock, loss reporting, malformed groups and entities with line numbers, units, determinism, revision 0 and existing-target rejection |
 | `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options, operation sequencing, drill patterns and feed recommendations (skipped without the addon) |
+| `tests/dxf.test.ts` (TypeScript) | DXF import report and loss list, written engrave operations, existing-target rejection, CLI success output and CLI malformed-group failure (skipped without the addon) |
 
 ## Limitations
 
@@ -452,6 +490,13 @@ outside the stock) do not make `ok` false.
   compensation, curve fitting, tangency, lead-in or lead-out moves. A closed
   polyline only adds a straight cut back to its first point. Holes and islands
   are not supported by an engrave operation.
+- DXF import is a deliberately small ASCII subset: no binary DXF, no block or
+  `INSERT` expansion, no `SPLINE`/`ELLIPSE`/`HATCH` approximation, no bulge
+  arcs, text, dimensions or 3D geometry, and no unit conversion. Every supported
+  entity becomes a centre-line `engrave` operation with one fixed tool; layers
+  only name operations and create no tools, depths or feeds. Imported geometry
+  is translated so the bounding-box minimum is `(0, 0)` and the stock is derived
+  from it, so the original drawing coordinates are not preserved.
 - A ramp entry is a straight-line descent along the first cutting direction of
   the level, folded back inside that first segment and returned to its start; it
   is not a helical, spiral or trochoidal entry and does not follow corners. It

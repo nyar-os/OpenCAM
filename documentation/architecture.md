@@ -76,7 +76,7 @@ but unimplemented routes and maps to exit code `2`.
 
 ## Node-API surface
 
-`version`, `capabilities`, `create`, `open`, `save`, `stock_set`, `tool_add`,
+`version`, `capabilities`, `create`, `import_dxf`, `open`, `save`, `stock_set`, `tool_add`,
 `tool_remove`, `tool_list`, `tool_export`, `tool_import`, `operation_add`,
 `operation_remove`, `validate`, `toolpaths`, `estimate`, `gcode`, `export`,
 `report`.
