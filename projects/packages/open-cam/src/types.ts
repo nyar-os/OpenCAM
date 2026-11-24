@@ -530,6 +530,63 @@ export interface ToolImportReport {
     readonly toolCount: number;
 }
 
+/** One DXF entity or section that the importer did not convert. */
+export interface DxfLoss {
+    /** Stable loss code, for example `import/dxf-unsupported-entity`. */
+    readonly code: string;
+    /** DXF entity type, or `SECTION` for a skipped section. */
+    readonly entity: string;
+    /** DXF layer name; empty for a skipped section. */
+    readonly layer: string;
+    /** 1-based line of the entity or section header. */
+    readonly line: number;
+    /** Human readable explanation. */
+    readonly message: string;
+}
+
+/** Request of `importDxf()`. */
+export interface DxfImportRequest {
+    /** Document to create. It must not exist. */
+    readonly path: string;
+    /** ASCII DXF drawing to read. */
+    readonly source: string;
+    /** Cut depth of every imported operation, in millimetres. Defaults to `1`. */
+    readonly depth?: number;
+    /** Maximum depth removed per Z pass, in millimetres. Defaults to `depth`. */
+    readonly stepdown?: number;
+    /** Maximum chord sagitta when flattening arcs and circles, in millimetres. Defaults to `0.05`. */
+    readonly tolerance?: number;
+}
+
+/** Result of `importDxf()`. */
+export interface DxfImportReport {
+    readonly format: string;
+    readonly version: number;
+    /** Declared document unit system, always `mm`. */
+    readonly units: string;
+    /** DXF file that was read. */
+    readonly source: string;
+    /** Document that was written. */
+    readonly path: string;
+    /** Raw `$INSUNITS` value, or `null` when the header declared none. */
+    readonly insUnits: number | null;
+    /** Unit note: `millimetres`, `unitless` or `unspecified`. */
+    readonly sourceUnits: string;
+    /** Chord sagitta tolerance used to flatten arcs and circles. */
+    readonly tolerance: number;
+    readonly depth: number;
+    readonly stepdown: number;
+    /** Number of entities converted into an operation. */
+    readonly entityCount: number;
+    /** Number of engrave operations in the written document. */
+    readonly operationCount: number;
+    /** Number of entities skipped by type or because they had no usable geometry. */
+    readonly skippedCount: number;
+    /** Skipped entities, sections and units, in file order. */
+    readonly losses: readonly DxfLoss[];
+    readonly document: DocumentSummary;
+}
+
 /** Full report returned by `report()`. */
 export interface Report {
     readonly format: string;

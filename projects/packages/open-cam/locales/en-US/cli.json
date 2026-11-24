@@ -5,6 +5,8 @@
             "version": "print the CLI version",
             "capabilities": "print the operation and I/O disclosure matrix",
             "create": "create an empty document",
+            "import": "import geometry from another file format",
+            "import-dxf": "import an ASCII DXF drawing as engrave operations",
             "stock": "replace the stock block",
             "tool": "manage the tool table",
             "tool-add": "add a tool",
@@ -71,7 +73,8 @@
             "coolant": "coolant mode: off, flood (`M8`) or mist (`M7`)",
             "apply": "reorder and save the document instead of only printing the plan",
             "out": "write the result to this path",
-            "from": "tool library file to import",
+            "from": "file to import (a tool library or an ASCII DXF drawing)",
+            "tolerance": "maximum chord sagitta when flattening DXF arcs and circles, in millimetres (default 0.05)",
             "format": "export format: gcode, json, csv or md"
         },
         "error": {

@@ -9,7 +9,14 @@
 import { CamDocument } from './document.js';
 import { OpenCAMError } from './errors.js';
 import * as service from './service.js';
-import type { FeedsReport, FeedsRequest, OpenCAMCapabilities, OpenCAMOptions } from './types.js';
+import type {
+    DxfImportReport,
+    DxfImportRequest,
+    FeedsReport,
+    FeedsRequest,
+    OpenCAMCapabilities,
+    OpenCAMOptions,
+} from './types.js';
 
 /** Machining session. One instance owns the documents it opens. */
 export class OpenCAM {
@@ -46,6 +53,25 @@ export class OpenCAM {
         const document = new CamDocument(service.create(path));
         this.documents.add(document);
         return document;
+    }
+
+    /**
+     * Imports an ASCII DXF drawing into a new document at `request.path`.
+     *
+     * Returns the import report, including the losses of skipped entities,
+     * sections and units. The new document keeps revision `0`; open it with
+     * {@link open} to edit it.
+     */
+    async importDxf(request: DxfImportRequest): Promise<DxfImportReport> {
+        this.assertActive();
+        assertPath(request.path);
+        assertPath(request.source);
+        return service.importDxf(request.path, {
+            source: request.source,
+            depth: request.depth,
+            stepdown: request.stepdown,
+            tolerance: request.tolerance,
+        });
     }
 
     /** Opens the document at `path` and returns it. */

@@ -307,6 +307,32 @@ cli
         }),
     );
 
+const importCommand = cli.command('import', 'cli.cmd.import');
+importCommand
+    .command('dxf', 'cli.cmd.import-dxf')
+    .option('--from <drawing.dxf>', 'cli.opt.from')
+    .option('--depth <mm>', 'cli.opt.depth')
+    .option('--stepdown <mm>', 'cli.opt.stepdown')
+    .option('--tolerance <mm>', 'cli.opt.tolerance')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'import dxf <file> --from <drawing.dxf>');
+            const depth = number(ctx, options, '--depth');
+            const stepdown = number(ctx, options, '--stepdown');
+            const tolerance = number(ctx, options, '--tolerance');
+            print(
+                await app.importDxf({
+                    path: file,
+                    source: required(ctx, options, '--from'),
+                    ...(depth === undefined ? {} : { depth }),
+                    ...(stepdown === undefined ? {} : { stepdown }),
+                    ...(tolerance === undefined ? {} : { tolerance }),
+                }),
+            );
+            return 0;
+        }),
+    );
+
 const toolCommand = cli.command('tool', 'cli.cmd.tool');
 toolCommand
     .command('add', 'cli.cmd.tool-add')

@@ -11,6 +11,8 @@ import { nativeBinding } from './native.js';
 import type {
     CycleTimeReport,
     DocumentSummary,
+    DxfImportReport,
+    DxfImportRequest,
     EstimateRequest,
     ExportFormat,
     ExportReport,
@@ -90,6 +92,11 @@ export function create(path: string): DocumentSummary {
 /** Opens a document and returns its summary. */
 export function open(path: string): DocumentSummary {
     return decode<DocumentSummary>(() => binding('open').open(path));
+}
+
+/** Imports an ASCII DXF drawing into a new document and returns the report. */
+export function importDxf(path: string, request: Omit<DxfImportRequest, 'path'>): DxfImportReport {
+    return decode<DxfImportReport>(() => binding('import.dxf').import_dxf(path, JSON.stringify(request)));
 }
 
 /** Writes a document to `target`, or in place when `target` is undefined. */
