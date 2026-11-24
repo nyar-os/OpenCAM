@@ -24,14 +24,17 @@
 //!   coolant (`M8`/`M7`/`M9`);
 //! * rectangular and circular drill patterns, and material-based spindle and
 //!   feed recommendations;
+//! * ASCII DXF import of 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE`
+//!   entities into one `engrave` operation each;
 //! * JSON, CSV and Markdown toolpath reports.
 //!
 //! Three-dimensional surfacing, adaptive clearing, turning, four-axis work,
-//! STEP/DXF import and vendor post-processors are **not** implemented. See
+//! STEP import and vendor post-processors are **not** implemented. See
 //! [`CAPABILITIES_JSON`] for the machine-readable capability matrix.
 
 #![deny(missing_docs)]
 
+mod dxf;
 mod error;
 mod estimate;
 mod export;
@@ -50,6 +53,10 @@ mod toolpath;
 pub mod validate;
 
 pub use crate::{
+    dxf::{
+        DEFAULT_DXF_DEPTH, DEFAULT_DXF_TOLERANCE, DEFAULT_ENGRAVE_TOOL_ID, DXF_IMPORT_FORMAT, DXF_IMPORT_VERSION, DxfImport,
+        DxfImportReport, DxfImportRequest, DxfLoss, MAX_ARC_SEGMENTS, MIN_CIRCLE_SEGMENTS, import as import_dxf,
+    },
     error::{CamError, not_implemented},
     estimate::{
         CycleTimeReport, DEFAULT_TOOL_CHANGE_SECONDS, EstimateRequest, OperationEstimate, estimate as estimate_cycle_time,
@@ -119,6 +126,6 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "toolLibrary": "supported",
     "gcodePost": "supported",
     "step": "unsupported",
-    "dxf": "unsupported"
+    "dxf": "supported"
   }
 }"#;
