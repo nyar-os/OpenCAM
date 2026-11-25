@@ -44,12 +44,13 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | DXF import, ASCII 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE` → one `engrave` operation each | ✅ supported |
 | G-code import, absolute-millimetre `G0`/`G1`/`G2`/`G3` subset → one `engrave` operation per cutting run | ✅ supported |
-| DXF export, ASCII `LINE`, `LWPOLYLINE` and `CIRCLE` of the stock, outlines, islands and drill holes | ✅ supported |
+| DXF export, ASCII `LINE`, `LWPOLYLINE` and `CIRCLE` of the stock, outlines, islands and drill holes, with a `TABLES` layer table and `$EXTMIN`/`$EXTMAX` extents | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
 | SVG toolpath drawing (stock, cuts, rapids, markers, legend, title block) | ✅ supported |
 | PDF toolpath drawing (one A4 landscape page, fitted and centred) | ✅ supported |
+| `tool-list`, `stock-setup` and `depth-map` sheets in SVG and PDF (`--kind`) | ✅ supported |
 | generic absolute-millimetre G-code | ✅ supported |
 | 3D surfacing, STL/solid input | ❌ not implemented |
 | adaptive clearing | ❌ not implemented |
@@ -360,6 +361,19 @@ The machine-readable version is printed by `open-cam capabilities` and by
     produces a valid empty sheet with the stock and title block. PDF text is
     ASCII-only: every non-ASCII character becomes `?` and is counted in the
     report's `dropped` field. SVG is XML with escaped text and keeps Unicode.
+    The same exporter also renders three further sheets selected by `--kind`
+    and reported as `kind`: `tool-list` prints one table row per declared tool
+    in document order (id, name, number, diameter, radius, flutes, spindle,
+    feed, plunge) and `no tools declared` for an empty table; `stock-setup`
+    draws the stock with the nominal operation geometry — a dashed stock
+    rectangle for `face`, a rectangle or circle for a `contour`/`pocket`, its
+    islands, the `engrave` polyline and a tool-diameter ring per drill hole —
+    numbered by document order; `depth-map` draws only the cutting chains,
+    groups them per Z level, shades each level from the full operation colour
+    to 35 % at the deepest level, labels every level `Z<depth>` and keeps the
+    operation legend. All sheets share the title block and are byte-identical
+    for equal documents. `kind` defaults to `toolpath` and only affects `svg`
+    and `pdf`; an unknown kind reports `cli/unknown-kind`.
 27. **DXF import.** `import dxf` reads the `ENTITIES` section of an ASCII DXF
     file and turns every supported 2D entity into one `engrave` operation that
     references a fixed `engrave` tool (0.2 mm, 12 000 rpm, 300 mm/min feed,

@@ -548,7 +548,7 @@ feed.
 ## export
 
 ```shell
-open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--out <path>]
+open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--kind <kind>] [--out <path>]
 ```
 
 | Format | Content |
@@ -557,9 +557,23 @@ open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--out <path>]
 | `json` | the toolpath report |
 | `csv` | one row per move: operation, kind, from/to, length, feed |
 | `md` | a Markdown stock/tool/operation summary |
-| `svg` | a vector toolpath drawing with a millimetre `viewBox` at 8 px/mm |
+| `svg` | a vector drawing with a millimetre `viewBox` at 8 px/mm |
 | `pdf` | the same drawing as a one-page A4 landscape PDF 1.4 |
 | `dxf` | the document geometry as ASCII DXF `LINE`, `LWPOLYLINE` and `CIRCLE` entities |
+
+`--kind` selects the sheet drawn for `svg` and `pdf` and defaults to `toolpath`:
+
+| Kind | Sheet |
+|------|-------|
+| `toolpath` | the stock and the generated toolpath moves, rapids, markers, legend and title block |
+| `tool-list` | one table row per declared tool: id, name, number, diameter, radius, flutes, spindle, feed and plunge |
+| `stock-setup` | the stock with the nominal operation outlines (rect, circle, engrave polyline, drill rings) numbered by document order |
+| `depth-map` | the cutting chains coloured by Z level, labelled with their depths and shaded from the first to the deepest level |
+
+The `tool-list`, `stock-setup` and `depth-map` sheets never regenerate a
+toolpath beyond the cutting chains the depth map needs. A report carries
+`kind` next to `format`. An unknown kind reports `cli/unknown-kind` and exits
+with code `1`.
 
 `--out` is required for `gcode`, `json`, `csv`, `md` and `dxf`. An `svg` or `pdf`
 drawing is written to `--out` when given and printed to stdout otherwise, so it
@@ -568,7 +582,8 @@ can be piped or redirected. With `--out`, the command prints the usual report
 printed unchanged. `dropped` counts non-ASCII characters the PDF font replaced
 with `?`; the CLI also prints that count to stderr. SVG keeps Unicode.
 
-The drawing is rendered from the toolpath report, never recomputed:
+A `toolpath` or `depth-map` drawing is rendered from the toolpath report,
+never recomputed:
 
 - the stock rectangle with its width × depth × height label;
 - one cutting polyline per operation, in a stable palette by operation index
