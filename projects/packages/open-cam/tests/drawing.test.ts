@@ -77,7 +77,9 @@ test('the SDK renders SVG and PDF toolpath drawings', async (t: TestContext) => 
         assert.ok(vector.text.includes('data-legend="true"'));
         assert.ok(vector.text.includes('data-title-block="true"'));
         assert.ok(vector.text.includes('<polyline'));
-        assert.ok(vector.text.includes('stroke-dasharray="1.5 1"'));
+        assert.ok(vector.text.includes('stroke-dasharray="0.8 1.4"'), 'rapids are short pale dashes');
+        assert.ok(vector.text.includes('data-plot="'), 'the sheet exposes its drawable area');
+        assert.ok(vector.text.includes('data-box="'), 'every text carries its measured cell');
         assert.ok(vector.text.includes('槽'), 'SVG keeps Unicode');
 
         const sheet = await document.renderDrawing('pdf');
@@ -98,7 +100,7 @@ test('the SDK renders SVG and PDF toolpath drawings', async (t: TestContext) => 
     }
 });
 
-test('the SDK renders the tool list, stock setup and depth map sheets', async (t: TestContext) => {
+test('the SDK renders the tool list, setup, depth map, operation sheet and stock removal sheets', async (t: TestContext) => {
     const session = new OpenCAM();
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-sheets-'));
     try {
@@ -126,6 +128,18 @@ test('the SDK renders the tool list, stock setup and depth map sheets', async (t
         assert.ok(depth.text.startsWith('%PDF-1.4'));
         assert.ok(depth.text.includes('depth map drawing \\(PDF\\)'));
         assert.ok(depth.dropped > 0, 'the non-ASCII id is reported as a loss');
+
+        const operations = await document.renderDrawing('svg', 'operation-sheet', { ops: [1] });
+        assert.equal(operations.kind, 'operation-sheet');
+        assert.ok(operations.text.includes('data-operation-table="true"'));
+        assert.ok(operations.text.includes('>stepover</text>'));
+        assert.ok(operations.text.includes('text-anchor="end"'), 'numeric columns are right aligned');
+        assert.ok(operations.text.includes('1 of 2 operation(s)'), 'the title counts the selected operations');
+
+        const removal = await document.renderDrawing('pdf', 'stock-removal');
+        assert.equal(removal.kind, 'stock-removal');
+        assert.ok(removal.text.startsWith('%PDF-1.4'));
+        assert.ok(removal.text.includes('stock removal drawing \\(PDF\\)'));
     } finally {
         await session.dispose();
     }
@@ -149,6 +163,14 @@ test('the CLI prints a drawing to stdout or writes --out', async (t: TestContext
 
         const listed = await run(process.execPath, [cli, 'export', file, '--format', 'svg', '--kind', 'tool-list']);
         assert.ok(listed.stdout.includes('data-tool-table="true"'), 'the CLI selects the sheet kind');
+
+        const filtered = await run(process.execPath, [cli, 'export', file, '--format', 'svg', '--ops', '1']);
+        assert.ok(filtered.stdout.includes('data-operation="profile"'));
+        assert.ok(!filtered.stdout.includes('data-operation="槽"'), 'the CLI filters the operations');
+        assert.ok(filtered.stdout.includes('1 of 2 operation(s)'));
+
+        const sheetKind = await run(process.execPath, [cli, 'export', file, '--format', 'svg', '--kind', 'operation-sheet']);
+        assert.ok(sheetKind.stdout.includes('data-operation-table="true"'), 'the CLI selects the operation sheet');
 
         const target = path.join(directory, 'sheet.pdf');
         const { stdout: summary } = await run(process.execPath, [
