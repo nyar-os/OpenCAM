@@ -38,7 +38,11 @@ fn round_trips_engrave_paths_and_closed_flags() {
     assert_eq!(import.source_units, "millimetres");
     assert_eq!(import.entity_count, 3, "stock rectangle plus the two paths");
     assert_eq!(import.skipped_count, 0);
-    assert!(import.losses.is_empty(), "losses: {:?}", import.losses);
+    assert_eq!(
+        import.losses.iter().map(|loss| (loss.code.as_str(), loss.entity.as_str(), loss.message.as_str())).collect::<Vec<_>>(),
+        vec![("import/dxf-unsupported-section", "SECTION", "section `TABLES` is ignored")],
+        "the exported layer table is the only section the reader skips"
+    );
 
     let stock = &import.document.operations[0];
     assert_eq!(stock.name, "STOCK");
@@ -135,6 +139,20 @@ fn sanitizes_operation_layers_and_keeps_output_deterministic() {
     let text = export_dxf(&document);
     assert!(text.contains("8\na-b-c\n"), "{text}");
     assert_eq!(text, export_dxf(&document), "the same document always writes the same bytes");
+}
+
+#[test]
+fn export_names_layers_and_extents_for_cad_tools() {
+    let mut document = CamDocument::new(Stock::new(80.0, 50.0, 10.0));
+    document.tools.push(engrave_tool());
+    document.operations.push(engrave("a.b", &[(10.0, 10.0), (40.0, 10.0)], false));
+    let text = export_dxf(&document);
+    assert!(text.contains("2\nTABLES\n"), "the layer table section is written: {text}");
+    assert!(text.contains("2\nLAYER\n70\n2\n"), "STOCK plus the operation layer are declared");
+    assert!(text.contains("0\nLAYER\n2\nSTOCK\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+    assert!(text.contains("0\nLAYER\n2\na-b\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+    assert!(text.contains("9\n$EXTMIN\n10\n0\n20\n0\n30\n0\n"), "$EXTMIN spans the stock origin");
+    assert!(text.contains("9\n$EXTMAX\n10\n80\n20\n50\n30\n0\n"), "$EXTMAX spans the stock corner");
 }
 
 #[test]

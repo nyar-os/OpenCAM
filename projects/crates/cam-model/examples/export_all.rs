@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     session.add_operation(contour)?;
 
     let mut drill = Operation::new("holes", OperationKind::Drill, "t6", 12.0, 6.0);
-    drill.holes = vec![Hole::new(25.0, 25.0), Hole::new(45.0, 25.0), Hole::new(25.0, 45.0), Hole::new(45.0, 45.0)];
+    drill.holes = vec![Hole::new(15.0, 65.0), Hole::new(35.0, 65.0), Hole::new(55.0, 65.0), Hole::new(75.0, 65.0)];
     session.add_operation(drill)?;
 
     let mut engrave = Operation::new("logo", OperationKind::Engrave, "t3", 0.5, 0.5);
@@ -67,9 +67,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     session.add_operation(engrave)?;
 
-    for format in
-        [ExportFormat::Gcode, ExportFormat::Csv, ExportFormat::Md, ExportFormat::Json, ExportFormat::Svg, ExportFormat::Pdf]
-    {
+    for format in [
+        ExportFormat::Gcode,
+        ExportFormat::Csv,
+        ExportFormat::Md,
+        ExportFormat::Json,
+        ExportFormat::Svg,
+        ExportFormat::Pdf,
+        ExportFormat::Dxf,
+    ] {
         let extension = format.as_str();
         let target = out.join(format!("demo.{extension}"));
         match session.export(format, &target) {

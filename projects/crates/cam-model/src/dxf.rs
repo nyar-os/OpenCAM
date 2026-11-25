@@ -259,48 +259,108 @@ pub fn import(text: &str, request: &DxfImportRequest) -> Result<DxfImport, CamEr
 /// the operation ids with every character outside `[A-Za-z0-9_-]` replaced by
 /// `-`; an empty result falls back to `OPERATION`.
 pub fn export(document: &CamDocument) -> String {
-    let mut text = String::from("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
-    rectangle(&mut text, "STOCK", 0.0, 0.0, document.stock.width, document.stock.depth);
+    let mut entities = String::from("0\nSECTION\n2\nENTITIES\n");
+    rectangle(&mut entities, "STOCK", 0.0, 0.0, document.stock.width, document.stock.depth);
+    let mut layers = vec!["STOCK".to_string()];
     for operation in &document.operations {
         let layer = layer_name(&operation.id);
+        if !layers.contains(&layer) {
+            layers.push(layer.clone());
+        }
         match operation.kind {
             OperationKind::Engrave => {
                 let points: Vec<(f64, f64)> = operation.path.iter().map(|point| (point.x, point.y)).collect();
                 if points.len() == 2 && !operation.closed {
-                    line(&mut text, &layer, points[0], points[1]);
+                    line(&mut entities, &layer, points[0], points[1]);
                 }
                 else if points.len() >= 2 {
-                    polyline(&mut text, &layer, &points, operation.closed);
+                    polyline(&mut entities, &layer, &points, operation.closed);
                 }
             }
             OperationKind::Contour | OperationKind::Pocket => {
-                outline(&mut text, &layer, operation);
+                outline(&mut entities, &layer, operation);
                 for island in &operation.islands {
                     if island.shape.as_deref() == Some("circle") {
                         circle(
-                            &mut text,
+                            &mut entities,
                             &layer,
                             (island.x + island.width / 2.0, island.y + island.height / 2.0),
                             island.width / 2.0,
                         );
                     }
                     else {
-                        rectangle(&mut text, &layer, island.x, island.y, island.width, island.height);
+                        rectangle(&mut entities, &layer, island.x, island.y, island.width, island.height);
                     }
                 }
             }
             OperationKind::Drill => {
                 if let Some(radius) = document.tools.iter().find(|tool| tool.id == operation.tool).map(Tool::radius) {
                     for hole in operation.resolved_holes() {
-                        circle(&mut text, &layer, (hole.x, hole.y), radius);
+                        circle(&mut entities, &layer, (hole.x, hole.y), radius);
                     }
                 }
             }
             OperationKind::Face => {}
         }
     }
-    text.push_str("0\nENDSEC\n0\nEOF\n");
-    text
+    entities.push_str("0\nENDSEC\n");
+
+    // The layer table names every layer the entity section writes, so CAD
+    // tools list them instead of discovering them from the entities.
+    let mut tables = format!("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n{}\n", layers.len());
+    for layer in &layers {
+        tables.push_str(&format!("0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+    }
+    tables.push_str("0\nENDTAB\n0\nENDSEC\n");
+
+    let (min_x, min_y, max_x, max_y) = extents(document);
+    let mut header = String::from("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n");
+    for (name, x, y) in [("$EXTMIN", min_x, min_y), ("$EXTMAX", max_x, max_y)] {
+        header.push_str(&format!("9\n{name}\n10\n{}\n20\n{}\n30\n0\n", number(x), number(y)));
+    }
+    header.push_str("0\nENDSEC\n");
+    format!("{header}{tables}{entities}0\nEOF\n")
+}
+
+/// Bounds of every entity [`export`] writes, for `$EXTMIN` and `$EXTMAX`.
+fn extents(document: &CamDocument) -> (f64, f64, f64, f64) {
+    let mut min_x = 0.0_f64;
+    let mut min_y = 0.0_f64;
+    let mut max_x = document.stock.width.max(1.0);
+    let mut max_y = document.stock.depth.max(1.0);
+    let mut include = |x: f64, y: f64| {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    };
+    for operation in &document.operations {
+        match operation.kind {
+            OperationKind::Engrave => {
+                for point in &operation.path {
+                    include(point.x, point.y);
+                }
+            }
+            OperationKind::Contour | OperationKind::Pocket => {
+                include(operation.x, operation.y);
+                include(operation.x + operation.width, operation.y + operation.height);
+                for island in &operation.islands {
+                    include(island.x, island.y);
+                    include(island.x + island.width, island.y + island.height);
+                }
+            }
+            OperationKind::Drill => {
+                if let Some(radius) = document.tools.iter().find(|tool| tool.id == operation.tool).map(Tool::radius) {
+                    for hole in operation.resolved_holes() {
+                        include(hole.x - radius, hole.y - radius);
+                        include(hole.x + radius, hole.y + radius);
+                    }
+                }
+            }
+            OperationKind::Face => {}
+        }
+    }
+    (min_x, min_y, max_x, max_y)
 }
 
 fn outline(text: &mut String, layer: &str, operation: &Operation) {
