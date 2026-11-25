@@ -43,6 +43,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | operation reordering (final 0-based index, same-index no-op keeps the revision) | ✅ supported |
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | DXF import, ASCII 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE` → one `engrave` operation each | ✅ supported |
+| DXF export, ASCII `LINE`, `LWPOLYLINE` and `CIRCLE` of the stock, outlines, islands and drill holes | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
 | JSON / CSV / Markdown reports | ✅ supported |
@@ -54,7 +55,6 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | turning | ❌ not implemented |
 | four-axis and five-axis work | ❌ not implemented |
 | STEP import | ❌ not implemented |
-| DXF export | ❌ not implemented |
 | vendor post-processors | ❌ not implemented |
 
 ## Algorithms
@@ -378,6 +378,20 @@ The machine-readable version is printed by `open-cam capabilities` and by
     `insUnits`, `sourceUnits`, tolerance, depth, stepdown,
     entity/operation/skipped counts, every loss and the written document
     summary.
+28. **DXF export.** `export --format dxf` writes the document's nominal
+    geometry, not the toolpath, as an ASCII DXF file: a `HEADER` declaring
+    `$INSUNITS` `4` (millimetres) and an `ENTITIES` section. The stock is a
+    closed `LWPOLYLINE` on layer `STOCK`; every `engrave` path becomes a
+    `LINE` (two open points) or a `LWPOLYLINE` whose flag `70` is `1` when
+    closed; every `contour` and `pocket` outline becomes a closed rectangle
+    `LWPOLYLINE` or, for `shape` `circle`, a `CIRCLE`; every pocket island
+    becomes a closed rectangle `LWPOLYLINE`; every `drill` hole becomes a
+    `CIRCLE` of the tool radius; `face` adds no entity. Operation layers are
+    the operation ids with every character outside `[A-Za-z0-9_-]` replaced
+    by `-`. Coordinates are rounded to three decimals and `-0` is normalised,
+    so the same document always writes the same bytes. The output stays inside
+    the importer's subset: an engrave-only drawing round-trips through
+    `import dxf` with the same points and closed flags.
 
 ## Tool library
 
@@ -479,6 +493,7 @@ outside the stock) do not make `ok` false.
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
 | `tests/dxf.rs` | LINE, closed LWPOLYLINE, POLYLINE vertices, ARC and CIRCLE flattening, segment counts and exact endpoints, sagitta tolerance, layer-derived ids, derived stock, loss reporting, malformed groups and entities with line numbers, units, determinism, revision 0 and existing-target rejection |
+| `tests/dxf_export.rs` | engrave round trip with points and closed flags, two-point `LINE`, stock-only empty document, circle outlines and drill holes as `CIRCLE`, layer sanitisation, byte determinism, `dxf` format parsing with `step` still unimplemented |
 | `tests/drawing.rs` | SVG structure, `viewBox`, stock/operations/legend/title block, XML escaping, rapid dashes and cut polylines, start and plunge markers, PDF 1.4 MediaBox and single page, determinism, empty document and PDF-only non-ASCII loss |
 | `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options, operation sequencing, drill patterns and feed recommendations (skipped without the addon) |
 | `tests/dxf.test.ts` (TypeScript) | DXF import report and loss list, written engrave operations, existing-target rejection, CLI success output and CLI malformed-group failure (skipped without the addon) |
@@ -524,6 +539,10 @@ outside the stock) do not make `ok` false.
   only name operations and create no tools, depths or feeds. Imported geometry
   is translated so the bounding-box minimum is `(0, 0)` and the stock is derived
   from it, so the original drawing coordinates are not preserved.
+- DXF export writes nominal geometry, not toolpaths: no cutter offset, no
+  raster or ring moves, no tabs, leads or ramps. Circular outlines and drill
+  holes are exported as true `CIRCLE` entities, no `ARC` entity is emitted and
+  the file has no `TABLES` section, so layers are not declared.
 - A ramp entry is a straight-line descent along the first cutting direction of
   the level, folded back inside that first segment and returned to its start; it
   is not a helical, spiral or trochoidal entry and does not follow corners. It

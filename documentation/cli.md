@@ -510,7 +510,7 @@ feed.
 ## export
 
 ```shell
-open-cam export <file> --format gcode|json|csv|md|svg|pdf [--out <path>]
+open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--out <path>]
 ```
 
 | Format | Content |
@@ -521,8 +521,9 @@ open-cam export <file> --format gcode|json|csv|md|svg|pdf [--out <path>]
 | `md` | a Markdown stock/tool/operation summary |
 | `svg` | a vector toolpath drawing with a millimetre `viewBox` at 8 px/mm |
 | `pdf` | the same drawing as a one-page A4 landscape PDF 1.4 |
+| `dxf` | the document geometry as ASCII DXF `LINE`, `LWPOLYLINE` and `CIRCLE` entities |
 
-`--out` is required for `gcode`, `json`, `csv` and `md`. An `svg` or `pdf`
+`--out` is required for `gcode`, `json`, `csv`, `md` and `dxf`. An `svg` or `pdf`
 drawing is written to `--out` when given and printed to stdout otherwise, so it
 can be piped or redirected. With `--out`, the command prints the usual report
 (`format`, `path`, `files`, `bytes` and `dropped`); a drawing sent to stdout is
@@ -549,8 +550,14 @@ document order and no timestamp is written, so two runs are byte-identical. An
 empty document still produces a valid empty sheet with the stock and title
 block. PDF text is ASCII-only and uses Helvetica.
 
-`export --format step` and `export --format dxf` are declared but unimplemented
-and exit with code `2`; DXF input is available through `import dxf`.
+`export --format step` is declared but unimplemented and exits with code `2`.
+
+The `dxf` export writes nominal geometry, not the toolpath: the stock
+rectangle on layer `STOCK`, one `LINE` or `LWPOLYLINE` per engrave path, one
+closed rectangle `LWPOLYLINE` or `CIRCLE` per contour and pocket outline and
+per pocket island, and one `CIRCLE` of the tool radius per drill hole.
+Operation layers are the sanitized operation ids and coordinates are rounded
+to three decimals. An engrave drawing round-trips through `import dxf`.
 
 ## report
 
@@ -622,4 +629,5 @@ open-cam gcode bracket.ocam --program-number 1001 --line-numbers --coolant flood
 open-cam export bracket.ocam --format svg --out bracket.svg
 open-cam export bracket.ocam --format pdf --out bracket.pdf
 open-cam export bracket.ocam --format svg > bracket.svg
+open-cam export bracket.ocam --format dxf --out bracket.dxf
 ```
