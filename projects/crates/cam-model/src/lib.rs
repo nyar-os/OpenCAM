@@ -60,7 +60,10 @@ pub mod validate;
 
 pub use crate::{
     drawing::{
-        Drawing, depth_map_pdf, depth_map_svg, pdf, stock_setup_pdf, stock_setup_svg, svg, tool_list_pdf, tool_list_svg,
+        Drawing, DrawingOptions, depth_map_pdf, depth_map_pdf_with_options, depth_map_svg, depth_map_svg_with_options,
+        operation_sheet_pdf, operation_sheet_pdf_with_options, operation_sheet_svg, operation_sheet_svg_with_options, pdf,
+        pdf_with_options, stock_removal_pdf, stock_removal_pdf_with_options, stock_removal_svg, stock_removal_svg_with_options,
+        stock_setup_pdf, stock_setup_svg, svg, svg_with_options, text_width_mm, tool_list_pdf, tool_list_svg,
     },
     dxf::{
         DEFAULT_DXF_DEPTH, DEFAULT_DXF_TOLERANCE, DEFAULT_ENGRAVE_TOOL_ID, DXF_IMPORT_FORMAT, DXF_IMPORT_VERSION, DxfImport,
@@ -147,6 +150,8 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "toolListDrawing": "supported",
     "stockSetupDrawing": "supported",
     "depthMapDrawing": "supported",
+    "operationSheetDrawing": "supported",
+    "stockRemovalDrawing": "supported",
     "toolLibrary": "supported",
     "gcodePost": "supported",
     "step": "unsupported",

@@ -29,7 +29,19 @@ export type CoolantMode = 'off' | 'flood' | 'mist';
 export type DrawingFormat = 'svg' | 'pdf';
 
 /** Kinds of vector sheet `renderDrawing()` can produce. */
-export type DrawingKind = 'toolpath' | 'tool-list' | 'stock-setup' | 'depth-map';
+export type DrawingKind =
+    | 'toolpath'
+    | 'tool-list'
+    | 'stock-setup'
+    | 'depth-map'
+    | 'operation-sheet'
+    | 'stock-removal';
+
+/** Rendering options of a vector sheet. */
+export interface DrawingOptions {
+    /** One-based operation numbers to draw, in document order; omitted draws every operation. */
+    readonly ops?: readonly number[];
+}
 
 /** Export formats `exportDocument()` can write. */
 export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md' | DrawingFormat | 'dxf';

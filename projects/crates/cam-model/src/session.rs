@@ -126,6 +126,10 @@ pub enum DrawingKind {
     StockSetup,
     /// Cutting chains coloured by Z level.
     DepthMap,
+    /// Table of every operation with its process data.
+    OperationSheet,
+    /// Stepped stock-removal section along the X centre line.
+    StockRemoval,
 }
 
 impl DrawingKind {
@@ -136,6 +140,8 @@ impl DrawingKind {
             Self::ToolList => "tool-list",
             Self::StockSetup => "stock-setup",
             Self::DepthMap => "depth-map",
+            Self::OperationSheet => "operation-sheet",
+            Self::StockRemoval => "stock-removal",
         }
     }
 }
@@ -149,9 +155,13 @@ impl FromStr for DrawingKind {
             "tool-list" => Ok(Self::ToolList),
             "stock-setup" => Ok(Self::StockSetup),
             "depth-map" => Ok(Self::DepthMap),
+            "operation-sheet" => Ok(Self::OperationSheet),
+            "stock-removal" => Ok(Self::StockRemoval),
             other => Err(CamError::new(
                 "cli/unknown-kind",
-                format!("unknown drawing kind `{other}`; only toolpath, tool-list, stock-setup or depth-map is supported"),
+                format!(
+                    "unknown drawing kind `{other}`; only toolpath, tool-list, stock-setup, depth-map, operation-sheet or stock-removal is supported"
+                ),
             )),
         }
     }
@@ -180,7 +190,8 @@ pub struct ExportReport {
 pub struct DrawingReport {
     /// Drawing format, `svg` or `pdf`.
     pub format: String,
-    /// Drawing kind, `toolpath`, `tool-list`, `stock-setup` or `depth-map`.
+    /// Drawing kind, `toolpath`, `tool-list`, `stock-setup`, `depth-map`,
+    /// `operation-sheet` or `stock-removal`.
     pub kind: String,
     /// Rendered sheet text, ready to write unchanged.
     pub text: String,
@@ -653,9 +664,22 @@ impl OpenCam {
     ///
     /// Only the drawing formats [`ExportFormat::Svg`] and [`ExportFormat::Pdf`]
     /// are accepted; the text is returned unchanged so the CLI can send it to
-    /// `--out` or stdout. `kind` selects the sheet: toolpath moves, the tool
-    /// table, the nominal stock setup or the Z-level depth map.
+    /// `--out` or stdout. `kind` selects the sheet.
     pub fn drawing(&self, kind: DrawingKind, format: ExportFormat) -> Result<DrawingReport, CamError> {
+        self.drawing_with_options(kind, format, &crate::DrawingOptions::all())
+    }
+
+    /// Renders the open document as a vector drawing with rendering options.
+    ///
+    /// [`crate::DrawingOptions::ops`] filters the drawn operations by one-based
+    /// document position; `None` draws every operation. Filtering only changes
+    /// which operations are visible, their colours and legend rows.
+    pub fn drawing_with_options(
+        &self,
+        kind: DrawingKind,
+        format: ExportFormat,
+        options: &crate::DrawingOptions,
+    ) -> Result<DrawingReport, CamError> {
         if !format.is_drawing() {
             return Err(CamError::new(
                 "export/not-drawing",
@@ -664,17 +688,45 @@ impl OpenCam {
         }
         let document = self.document()?;
         let id = self.id();
+        let report = if matches!(kind, DrawingKind::Toolpath | DrawingKind::DepthMap | DrawingKind::OperationSheet) {
+            Some(toolpath::generate(document)?)
+        }
+        else {
+            None
+        };
         let drawing = match (kind, format) {
-            (DrawingKind::Toolpath, ExportFormat::Pdf) => crate::drawing::pdf(document, &toolpath::generate(document)?, &id),
-            (DrawingKind::Toolpath, _) => crate::drawing::svg(document, &toolpath::generate(document)?, &id),
+            (DrawingKind::Toolpath, ExportFormat::Pdf) => {
+                crate::drawing::pdf_with_options(document, report.as_ref().expect("generated report"), &id, options)
+            }
+            (DrawingKind::Toolpath, _) => {
+                crate::drawing::svg_with_options(document, report.as_ref().expect("generated report"), &id, options)
+            }
             (DrawingKind::ToolList, ExportFormat::Pdf) => crate::drawing::tool_list_pdf(document, &id),
             (DrawingKind::ToolList, _) => crate::drawing::tool_list_svg(document, &id),
             (DrawingKind::StockSetup, ExportFormat::Pdf) => crate::drawing::stock_setup_pdf(document, &id),
             (DrawingKind::StockSetup, _) => crate::drawing::stock_setup_svg(document, &id),
             (DrawingKind::DepthMap, ExportFormat::Pdf) => {
-                crate::drawing::depth_map_pdf(document, &toolpath::generate(document)?, &id)
+                crate::drawing::depth_map_pdf_with_options(document, report.as_ref().expect("generated report"), &id, options)
             }
-            (DrawingKind::DepthMap, _) => crate::drawing::depth_map_svg(document, &toolpath::generate(document)?, &id),
+            (DrawingKind::DepthMap, _) => {
+                crate::drawing::depth_map_svg_with_options(document, report.as_ref().expect("generated report"), &id, options)
+            }
+            (DrawingKind::OperationSheet, ExportFormat::Pdf) => crate::drawing::operation_sheet_pdf_with_options(
+                document,
+                report.as_ref().expect("generated report"),
+                &id,
+                options,
+            ),
+            (DrawingKind::OperationSheet, _) => crate::drawing::operation_sheet_svg_with_options(
+                document,
+                report.as_ref().expect("generated report"),
+                &id,
+                options,
+            ),
+            (DrawingKind::StockRemoval, ExportFormat::Pdf) => {
+                crate::drawing::stock_removal_pdf_with_options(document, &id, options)
+            }
+            (DrawingKind::StockRemoval, _) => crate::drawing::stock_removal_svg_with_options(document, &id, options),
         };
         Ok(DrawingReport {
             format: format.as_str().to_string(),

@@ -127,10 +127,35 @@ function exportFormat(ctx: CommandContext, value: string): ExportFormat {
 }
 
 function drawingKind(value: string): DrawingKind {
-    if (value === 'toolpath' || value === 'tool-list' || value === 'stock-setup' || value === 'depth-map') {
+    if (
+        value === 'toolpath' ||
+        value === 'tool-list' ||
+        value === 'stock-setup' ||
+        value === 'depth-map' ||
+        value === 'operation-sheet' ||
+        value === 'stock-removal'
+    ) {
         return value;
     }
     throw new OpenCAMError('cli/unknown-kind', `unknown drawing kind \`${value}\``);
+}
+
+/** Parses `1,3,5` into one-based operation numbers; omitted selects every operation. */
+function operationNumbers(raw: string | undefined): number[] | undefined {
+    if (raw === undefined) {
+        return undefined;
+    }
+    return raw
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+        .map((entry) => {
+            const value = Number(entry);
+            if (!Number.isInteger(value) || value < 1) {
+                throw new OpenCAMError('cli/invalid-number', `operation \`${entry}\` must be a positive integer`);
+            }
+            return value;
+        });
 }
 
 function postProcessor(value: string): PostProcessor {
@@ -765,18 +790,32 @@ cli
 cli
     .command('export', 'cli.cmd.export')
     .option('--format <gcode|json|csv|md|svg|pdf|dxf>', 'cli.opt.format')
-    .option('--kind <toolpath|tool-list|stock-setup|depth-map>', 'cli.opt.drawing-kind')
+    .option('--kind <toolpath|tool-list|stock-setup|depth-map|operation-sheet|stock-removal>', 'cli.opt.drawing-kind')
+    .option('--ops <1,3,5>', 'cli.opt.ops')
     .option('--out <path>', 'cli.opt.out')
     .actionCtx(async (options, _args, ctx) =>
         guard(ctx, async () => {
-            const file = positional(ctx, options, 'export <file> --format <format> [--kind <kind>] [--out <path>]');
+            const file = positional(ctx, options, 'export <file> --format <format> [--kind <kind>] [--ops <1,3,5>] [--out <path>]');
             await withDocument(file, async (document) => {
                 const format = exportFormat(ctx, text(options, 'format') ?? 'gcode');
                 const kind = drawingKind(text(options, 'kind') ?? 'toolpath');
+                const ops = operationNumbers(text(options, 'ops'));
                 const target = text(options, 'out');
-                if (target === undefined && (format === 'svg' || format === 'pdf')) {
-                    const drawing = await document.renderDrawing(format, kind);
-                    process.stdout.write(drawing.text);
+                if (format === 'svg' || format === 'pdf') {
+                    const drawing = await document.renderDrawing(format, kind, ops === undefined ? {} : { ops });
+                    if (target === undefined) {
+                        process.stdout.write(drawing.text);
+                    }
+                    else {
+                        fs.writeFileSync(target, drawing.text);
+                        print({
+                            format: drawing.format,
+                            kind: drawing.kind,
+                            path: target,
+                            bytes: Buffer.byteLength(drawing.text),
+                            dropped: drawing.dropped,
+                        });
+                    }
                     if (drawing.dropped > 0) {
                         ctx.stderr(ctx.t('cli.warn.droppedCharacters', { count: String(drawing.dropped) }));
                     }

@@ -14,6 +14,7 @@ import type {
     DocumentSummary,
     DrawingFormat,
     DrawingKind,
+    DrawingOptions,
     DrawingReport,
     EstimateRequest,
     ExportFormat,
@@ -216,9 +217,13 @@ export class CamDocument {
     }
 
     /** Renders the document as an `svg` or `pdf` sheet without writing it. */
-    async renderDrawing(format: DrawingFormat, kind: DrawingKind = 'toolpath'): Promise<DrawingReport> {
+    async renderDrawing(
+        format: DrawingFormat,
+        kind: DrawingKind = 'toolpath',
+        options: DrawingOptions = {},
+    ): Promise<DrawingReport> {
         this.assertOpen();
-        return service.drawing(this.state.path, format, kind);
+        return service.drawing(this.state.path, format, kind, options);
     }
 
     /** Returns the full report. */

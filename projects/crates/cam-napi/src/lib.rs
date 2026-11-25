@@ -562,7 +562,9 @@ fn export(ctx: CallContext) -> Result<JsValue> {
 /// Renders a document as an `svg` or `pdf` drawing and returns its text.
 ///
 /// The optional third argument selects the sheet kind: `toolpath` (default),
-/// `tool-list`, `stock-setup` or `depth-map`.
+/// `tool-list`, `stock-setup`, `depth-map`, `operation-sheet` or `stock-removal`.
+/// The optional fourth argument is a comma separated one-based operation list
+/// such as `1,3,5`; omitted draws every operation.
 #[function]
 fn drawing(ctx: CallContext) -> Result<JsValue> {
     let path = text(&ctx, 0)?;
@@ -571,9 +573,13 @@ fn drawing(ctx: CallContext) -> Result<JsValue> {
         Some(value) => value.parse::<DrawingKind>().map_err(fail)?,
         None => DrawingKind::Toolpath,
     };
+    let options = match optional_text(&ctx, 3)? {
+        Some(value) => cam_model::DrawingOptions::from_csv(&value).map_err(fail)?,
+        None => cam_model::DrawingOptions::all(),
+    };
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;
-    let report = session.drawing(kind, format).map_err(fail)?;
+    let report = session.drawing_with_options(kind, format, &options).map_err(fail)?;
     respond(&ctx, &report)
 }
 

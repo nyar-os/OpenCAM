@@ -13,6 +13,7 @@ import type {
     DocumentSummary,
     DrawingFormat,
     DrawingKind,
+    DrawingOptions,
     DrawingReport,
     DxfImportReport,
     DxfImportRequest,
@@ -232,8 +233,16 @@ export function exportDocument(path: string, format: ExportFormat, target: strin
 }
 
 /** Renders a document as an `svg` or `pdf` sheet without writing it. */
-export function drawing(path: string, format: DrawingFormat, kind: DrawingKind = 'toolpath'): DrawingReport {
-    return decode<DrawingReport>(() => binding('drawing').drawing(path, format, kind));
+export function drawing(
+    path: string,
+    format: DrawingFormat,
+    kind: DrawingKind = 'toolpath',
+    options: DrawingOptions = {},
+): DrawingReport {
+    const ops = options.ops === undefined ? undefined : options.ops.join(',');
+    return decode<DrawingReport>(() =>
+        ops === undefined ? binding('drawing').drawing(path, format, kind) : binding('drawing').drawing(path, format, kind, ops),
+    );
 }
 
 /** Returns the full report of a document. */
