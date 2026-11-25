@@ -142,8 +142,15 @@ const LEGEND_SAMPLE_MM: f64 = 3.0;
 const FIT_MARGIN_FRACTION: f64 = 0.08;
 const TABLE_ROW_MM: f64 = 5.0;
 const TABLE_FONT_MM: f64 = 2.3;
+const TABLE_INSET_MM: f64 = 2.0;
 const LEGEND_FONT_MM: f64 = 2.2;
 const SECTION_Z_EXAGGERATION: f64 = 4.0;
+const TITLE_PAD_MM: f64 = 2.0;
+const TITLE_MIN_FONT_MM: f64 = 1.5;
+const TITLE_BOTTOM_GAP_MM: f64 = 2.0;
+/// Fraction of a cell's text width the renderer fills, leaving room for wider
+/// glyph advances than the conservative `0.6 em` estimate.
+const TITLE_FIT_FRACTION: f64 = 0.96;
 
 const PDF_PAGE_WIDTH: f64 = 842.0;
 const PDF_PAGE_HEIGHT: f64 = 595.0;
@@ -399,6 +406,7 @@ pub fn depth_map_svg_with_options(
     push_svg_frame(&mut svg, &layout);
     push_svg_stock(&mut svg, document, &fit);
 
+    let mut labels = LabelPlacer::new(layout.plot);
     for &index in &selected {
         let levels = chain_levels(&drawings[index]);
         svg.push_str(&format!("  <g data-depth-map=\"true\" data-index=\"{index}\">\n"));
@@ -420,16 +428,10 @@ pub fn depth_map_svg_with_options(
             }
             if let Some(chain) = drawings[index].cuts.iter().find(|chain| level_index(&levels, chain.z) == level) {
                 let (x, y) = chain.points.first().copied().unwrap_or((0.0, 0.0));
-                push_svg_text(
-                    &mut svg,
-                    fit.map_x(x) + 0.8,
-                    fit.map_y(y) + 2.0 + (index * 4 + level) as f64 * 2.4,
-                    2.2,
-                    INK,
-                    &format!("Z{}", number(*z)),
-                    layout.plot,
-                    None,
-                );
+                let text = format!("Z{}", number(*z));
+                if let Some((x, baseline)) = labels.place(&text, 2.2, (fit.map_x(x) + 0.8, fit.map_y(y) + 2.0)) {
+                    push_svg_text(&mut svg, x, baseline, 2.2, INK, &text, layout.plot, None);
+                }
             }
         }
         svg.push_str("  </g>\n");
@@ -466,6 +468,7 @@ pub fn depth_map_pdf_with_options(
     pdf_frame(&mut content, &layout);
     pdf_stock(&mut content, document, &fit);
 
+    let mut labels = LabelPlacer::new(layout.plot);
     for &index in &selected {
         let levels = chain_levels(&drawings[index]);
         for (level, z) in levels.iter().enumerate() {
@@ -479,15 +482,10 @@ pub fn depth_map_pdf_with_options(
             }
             if let Some(chain) = drawings[index].cuts.iter().find(|chain| level_index(&levels, chain.z) == level) {
                 let (x, y) = chain.points.first().copied().unwrap_or((0.0, 0.0));
-                pdf_text_at(
-                    &mut content,
-                    fit.map_x(x) + 1.0,
-                    fit.map_y(y) + 2.0 + (index * 4 + level) as f64 * 2.4,
-                    2.2,
-                    INK_RGB,
-                    &format!("Z{}", number(*z)),
-                    &mut dropped,
-                );
+                let text = format!("Z{}", number(*z));
+                if let Some((x, baseline)) = labels.place(&text, 2.2, (fit.map_x(x) + 1.0, fit.map_y(y) + 2.0)) {
+                    pdf_text_at(&mut content, x, baseline, 2.2, INK_RGB, &text, &mut dropped);
+                }
             }
         }
     }
@@ -749,6 +747,47 @@ impl Rect {
     }
 }
 
+/// Deterministic label placement that keeps annotations apart and inside the
+/// plot.
+struct LabelPlacer {
+    plot: Rect,
+    placed: Vec<Rect>,
+}
+
+impl LabelPlacer {
+    fn new(plot: Rect) -> Self {
+        Self { plot, placed: Vec::new() }
+    }
+
+    /// Places `text` near `at`, shifting vertically until it neither overlaps a
+    /// placed label nor leaves the plot. Reports `None` when every slot is full.
+    fn place(&mut self, text: &str, size: f64, at: (f64, f64)) -> Option<(f64, f64)> {
+        let width = text_width_mm(text, size);
+        let height = size * 1.25;
+        let x = at.0.min(self.plot.right() - width).max(self.plot.x);
+        for shift in [0.0, 1.0, -1.0, 2.0, -2.0, 3.0, -3.0, 4.0, -4.0, 5.0, -5.0, 6.0, -6.0] {
+            let baseline = at.1 + shift * (height + 0.4);
+            let bounds = Rect { x, y: baseline - size, width, height };
+            if bounds.x < self.plot.x
+                || bounds.right() > self.plot.right() + 1e-9
+                || bounds.y < self.plot.y
+                || bounds.bottom() > self.plot.bottom() + 1e-9
+            {
+                continue;
+            }
+            let overlaps = self.placed.iter().any(|other| {
+                bounds.x < other.right() && other.x < bounds.right() && bounds.y < other.bottom() && other.y < bounds.bottom()
+            });
+            if overlaps {
+                continue;
+            }
+            self.placed.push(bounds);
+            return Some((x, baseline));
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SheetLayout {
     frame: Rect,
@@ -765,7 +804,12 @@ impl SheetLayout {
             width: PAGE_WIDTH_MM - 2.0 * FRAME_MARGIN_MM,
             height: PAGE_HEIGHT_MM - 2.0 * FRAME_MARGIN_MM,
         };
-        let title = Rect { x: frame.x, y: frame.bottom() - TITLE_HEIGHT_MM, width: frame.width, height: TITLE_HEIGHT_MM };
+        let title = Rect {
+            x: frame.x + 2.0,
+            y: frame.bottom() - 1.0 - TITLE_BOTTOM_GAP_MM - TITLE_HEIGHT_MM,
+            width: frame.width - 4.0,
+            height: TITLE_HEIGHT_MM,
+        };
         let legend_height =
             if legend_rows == 0 { 0.0 } else { LEGEND_ROW_MM * (legend_rows.div_ceil(2) as f64) + 2.0 * LEGEND_PAD_MM };
         let legend_y = title.y - legend_height - if legend_height > 0.0 { LEGEND_GAP_MM } else { 0.0 };
@@ -1188,7 +1232,7 @@ fn push_svg_legend_sample(svg: &mut String, x: f64, baseline: f64, entry: &Legen
 }
 
 fn push_svg_title_block(svg: &mut String, layout: &SheetLayout, cells: Vec<TitleCell>) {
-    let measured = measure_cells(&cells, layout.title.width, 2.0);
+    let block = title_layout(layout, &cells);
     svg.push_str("  <g data-title-block=\"true\">\n");
     svg.push_str(&format!(
         "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"0.4\"/>\n",
@@ -1197,29 +1241,20 @@ fn push_svg_title_block(svg: &mut String, layout: &SheetLayout, cells: Vec<Title
         number(layout.title.right()),
         number(layout.title.y)
     ));
-    let mut x = layout.title.x;
-    for (index, cell) in cells.iter().enumerate() {
-        let width = measured.widths[index];
-        let right = x + width;
+    for right in &block.dividers {
         svg.push_str(&format!(
             "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"0.4\"/>\n",
-            number(right),
+            number(*right),
             number(layout.title.y),
-            number(right),
+            number(*right),
             number(layout.title.bottom())
         ));
-        for (line, entry) in cell.lines.iter().enumerate() {
-            let baseline = layout.title.y + 7.0 + line as f64 * 8.0;
-            let size = entry.size * measured.scale;
-            let bounds = Rect {
-                x: x + 1.5 * measured.scale,
-                y: baseline - size,
-                width: (width - 3.0 * measured.scale).max(0.1),
-                height: size * 1.3,
-            };
-            push_svg_text(svg, bounds.x, baseline, size, entry.colour, &entry.text, bounds, None);
+    }
+    for line in &block.lines {
+        if line.text.is_empty() {
+            continue;
         }
-        x = right;
+        push_svg_text(svg, line.x, line.baseline, line.size, line.colour, &line.text, line.bounds, None);
     }
     svg.push_str("  </g>\n");
 }
@@ -1244,9 +1279,9 @@ fn svg_table_sheet(
     else {
         rows.to_vec()
     };
-    let measured = measure_table(headers, &table_rows, layout.plot.width, TABLE_FONT_MM, 2.0);
-    let left = layout.plot.x;
-    let top = layout.plot.y + 4.0;
+    let measured = measure_table(headers, &table_rows, layout.plot.width - 2.0 * TABLE_INSET_MM, TABLE_FONT_MM, 2.0);
+    let left = layout.plot.x + TABLE_INSET_MM;
+    let top = layout.plot.y + TABLE_INSET_MM + 3.4;
     let width: f64 = measured.widths.iter().sum();
     let header_cells: Vec<Vec<String>> = vec![headers.iter().map(|header| (*header).to_string()).collect()];
     push_svg_table(&mut svg, &table_rows, &header_cells, aligns, left, top, &measured.widths, measured.scale);
@@ -1521,19 +1556,13 @@ fn pdf_legend(content: &mut String, layout: &SheetLayout, rows: &[LegendRow], dr
 }
 
 fn pdf_title_block(content: &mut String, layout: &SheetLayout, cells: Vec<TitleCell>, dropped: &mut usize) {
-    let measured = measure_cells(&cells, layout.title.width, 2.0);
+    let block = title_layout(layout, &cells);
     pdf_line(content, (layout.title.x, layout.title.y), (layout.title.right(), layout.title.y), INK_RGB, 0.4, None);
-    let mut x = layout.title.x;
-    for (index, cell) in cells.iter().enumerate() {
-        let width = measured.widths[index];
-        let right = x + width;
-        pdf_line(content, (right, layout.title.y), (right, layout.title.bottom()), INK_RGB, 0.4, None);
-        for (line, entry) in cell.lines.iter().enumerate() {
-            let baseline = layout.title.y + 7.0 + line as f64 * 8.0;
-            let size = entry.size * measured.scale;
-            pdf_text_at(content, x + 1.5 * measured.scale, baseline, size, entry.colour_rgb, &entry.text, dropped);
-        }
-        x = right;
+    for right in &block.dividers {
+        pdf_line(content, (*right, layout.title.y), (*right, layout.title.bottom()), INK_RGB, 0.4, None);
+    }
+    for line in &block.lines {
+        pdf_text_at(content, line.x, line.baseline, line.size, line.colour_rgb, &line.text, dropped);
     }
 }
 
@@ -1699,12 +1728,12 @@ fn pdf_table_sheet(
     else {
         rows.to_vec()
     };
-    let measured = measure_table(headers, &table_rows, layout.plot.width, TABLE_FONT_MM, 2.0);
+    let measured = measure_table(headers, &table_rows, layout.plot.width - 2.0 * TABLE_INSET_MM, TABLE_FONT_MM, 2.0);
     let mut dropped = 0usize;
     let mut content = pdf_open(&layout, subtitle, id, &mut dropped);
     pdf_frame(&mut content, &layout);
-    let left = layout.plot.x;
-    let top = layout.plot.y + 4.0;
+    let left = layout.plot.x + TABLE_INSET_MM;
+    let top = layout.plot.y + TABLE_INSET_MM + 3.4;
     let width: f64 = measured.widths.iter().sum();
     let all_rows: Vec<Vec<String>> = std::iter::once(headers.iter().map(|header| (*header).to_string()).collect())
         .chain(table_rows.iter().cloned())
@@ -1731,7 +1760,7 @@ fn pdf_table_sheet(
         pdf_line(&mut content, (left, baseline + 1.6), (left + width, baseline + 1.6), MUTED_RGB, 0.2, None);
     }
     let height = TABLE_ROW_MM * (all_rows.len() as f64) + 3.4;
-    pdf_rect(&mut content, (left, layout.plot.y + height), (left + width, layout.plot.y + 4.0 - 3.4), INK_RGB, 0.35, true);
+    pdf_rect(&mut content, (left, top - 3.4 + height), (left + width, top - 3.4), INK_RGB, 0.35, true);
     pdf_title_block(&mut content, &layout, table_title_cells(id, subtitle, &note), &mut dropped);
     finish_pdf_page(&content, dropped)
 }
@@ -1787,29 +1816,172 @@ struct TitleCell {
     lines: Vec<CellLine>,
 }
 
-struct MeasuredCells {
-    widths: Vec<f64>,
-    scale: f64,
-}
-
 struct MeasuredTable {
     widths: Vec<f64>,
     scale: f64,
 }
 
-fn measure_cells(cells: &[TitleCell], available: f64, pad: f64) -> MeasuredCells {
+struct TitleLine {
+    text: String,
+    size: f64,
+    colour: &'static str,
+    colour_rgb: [u8; 3],
+    x: f64,
+    baseline: f64,
+    bounds: Rect,
+}
+
+struct TitleLayout {
+    dividers: Vec<f64>,
+    lines: Vec<TitleLine>,
+}
+
+/// Distributes the title width over the cells and fits every line inside its
+/// cell.
+///
+/// Cells keep their measured proportions. A line that is too wide for its cell
+/// shrinks, down to [`TITLE_MIN_FONT_MM`], and wraps at that floor, so no title
+/// text can cross a cell divider or the frame.
+fn title_layout(layout: &SheetLayout, cells: &[TitleCell]) -> TitleLayout {
     let natural: Vec<f64> = cells
         .iter()
-        .map(|cell| cell.lines.iter().map(|line| text_width_mm(&line.text, line.size)).fold(0.0_f64, f64::max) + 2.0 * pad)
+        .map(|cell| {
+            cell.lines.iter().map(|line| text_width_mm(&line.text, line.size)).fold(0.0_f64, f64::max) + 2.0 * TITLE_PAD_MM
+        })
         .collect();
     let total: f64 = natural.iter().sum();
-    if total <= available || total <= 0.0 {
-        let extra = (available - total).max(0.0);
-        let widths = natural.iter().map(|width| width + extra * width / total.max(0.1)).collect();
-        return MeasuredCells { widths, scale: 1.0 };
+    let widths: Vec<f64> = if total <= layout.title.width {
+        let extra = layout.title.width - total;
+        natural.iter().map(|width| width + extra * width / total.max(1.0)).collect()
     }
-    let scale = available / total;
-    MeasuredCells { widths: natural.iter().map(|width| width * scale).collect(), scale }
+    else {
+        // Keep every cell usable: the shortest cell still gets a third of an
+        // even share, and the widest cell gives up the difference.
+        let share = layout.title.width / (cells.len().max(1) as f64 * 3.0);
+        let mut widths: Vec<f64> = natural.iter().map(|width| (width * layout.title.width / total).max(share)).collect();
+        let mut excess = widths.iter().sum::<f64>() - layout.title.width;
+        while excess > 1e-9 {
+            let mut widest = 0;
+            for index in 1..widths.len() {
+                if widths[index] > widths[widest] {
+                    widest = index;
+                }
+            }
+            let room = widths[widest] - share;
+            if room <= 1e-9 {
+                break;
+            }
+            let take = excess.min(room);
+            widths[widest] -= take;
+            excess -= take;
+        }
+        widths
+    };
+
+    let slot = (layout.title.height - 2.0 * TITLE_PAD_MM) / 2.0;
+    let mut dividers = Vec::with_capacity(widths.len());
+    let mut lines = Vec::new();
+    let mut x = layout.title.x;
+    for (cell, width) in cells.iter().zip(&widths) {
+        let pad = TITLE_PAD_MM.min(width * 0.25);
+        let room = (width - 2.0 * pad).max(0.1);
+        for (index, entry) in cell.lines.iter().enumerate() {
+            let slot_top = layout.title.y + TITLE_PAD_MM + index as f64 * slot;
+            let (text_lines, size) = fit_title_line(&entry.text, entry.size, room);
+            let count = text_lines.len().max(1) as f64;
+            let step = (size * 1.35).min(slot / count);
+            let band = (count - 1.0) * step;
+            let first = slot_top + (slot - band) / 2.0 + 0.3 * size;
+            for (line_index, text) in text_lines.into_iter().enumerate() {
+                let baseline = first + line_index as f64 * step;
+                lines.push(TitleLine {
+                    bounds: Rect { x: x + pad, y: baseline - size, width: room, height: size * 1.35 },
+                    text,
+                    size,
+                    colour: entry.colour,
+                    colour_rgb: entry.colour_rgb,
+                    x: x + pad,
+                    baseline,
+                });
+            }
+        }
+        x += width;
+        dividers.push(x);
+    }
+    TitleLayout { dividers, lines }
+}
+
+/// Fits `text` into `room` millimetres, shrinking or wrapping at the font floor.
+fn fit_title_line(text: &str, size: f64, room: f64) -> (Vec<String>, f64) {
+    let room = room * TITLE_FIT_FRACTION;
+    let em = text_width_mm(text, 1.0);
+    if em <= 0.0 {
+        return (vec![String::new()], size);
+    }
+    if em * size <= room {
+        return (vec![text.to_string()], size);
+    }
+    let fitted = room / em;
+    if fitted >= TITLE_MIN_FONT_MM {
+        return (vec![text.to_string()], fitted.min(size));
+    }
+    (wrap_title_line(text, TITLE_MIN_FONT_MM, room), TITLE_MIN_FONT_MM)
+}
+
+/// Greedy wrap that keeps every visual line inside `room`; the tail is trimmed
+/// with an ellipsis if it would need more than four lines.
+fn wrap_title_line(text: &str, size: f64, room: f64) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
+        if text_width_mm(&candidate, size) <= room {
+            current = candidate;
+            continue;
+        }
+        if !current.is_empty() {
+            lines.push(std::mem::take(&mut current));
+        }
+        for character in word.chars() {
+            if !current.is_empty() {
+                let mut candidate = current.clone();
+                candidate.push(character);
+                if text_width_mm(&candidate, size) > room {
+                    lines.push(std::mem::take(&mut current));
+                }
+            }
+            current.push(character);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    while lines.len() > 4 {
+        let tail = lines.pop().unwrap_or_default();
+        if let Some(last) = lines.last_mut() {
+            last.push(' ');
+            last.push_str(&tail);
+        }
+    }
+    if let Some(last) = lines.last_mut() {
+        if text_width_mm(last, size) > room {
+            let mut kept = String::new();
+            for character in last.chars() {
+                let mut candidate = kept.clone();
+                candidate.push(character);
+                candidate.push('…');
+                if text_width_mm(&candidate, size) <= room {
+                    kept.push(character);
+                }
+            }
+            kept.push('…');
+            *last = if text_width_mm(&kept, size) <= room { kept } else { String::new() };
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 fn measure_table(headers: &[&str], rows: &[Vec<String>], available: f64, font: f64, pad: f64) -> MeasuredTable {
