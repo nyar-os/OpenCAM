@@ -540,8 +540,10 @@ fn session_drawing_kinds_parse_and_render() {
 fn svg_sheets_pass_a_quality_self_check() {
     let document = document();
     let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let filtered = DrawingOptions::from_csv("1,3").expect("a valid list");
     let sheets = [
         ("toolpath", svg(&document, &report, "bracket").text),
+        ("toolpath-filtered", svg_with_options(&document, &report, "bracket", &filtered).text),
         ("tool-list", tool_list_svg(&document, "bracket").text),
         ("stock-setup", stock_setup_svg(&document, "bracket").text),
         ("depth-map", depth_map_svg(&document, &report, "bracket").text),
@@ -556,8 +558,27 @@ fn svg_sheets_pass_a_quality_self_check() {
         assert_rectangles(sheet);
         assert_text_fits(sheet);
         assert_text_positions_are_unique(name, sheet);
+        assert_layout_quality(name, sheet);
     }
     assert_coverage(&sheets[0].1);
+}
+
+/// A title long enough to force the font floor must wrap and stay inside its
+/// own cell instead of crossing a divider.
+#[test]
+fn long_title_text_stays_inside_its_cell() {
+    let document = document();
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let id = format!("bracket {}", "revision ".repeat(36));
+    let sheet = svg(&document, &report, id.trim()).text;
+
+    assert_text_fits(&sheet);
+    assert_layout_quality("long-title", &sheet);
+
+    let title = title_group(&sheet);
+    let runs = text_runs(title);
+    assert!(runs.len() > 4, "the long id wraps into several lines");
+    assert!(runs.iter().all(|run| run.size >= 1.5 - 1e-9), "the title font keeps its floor");
 }
 
 fn view_box(sheet: &str) -> (f64, f64) {
@@ -719,5 +740,204 @@ fn assert_text_positions_are_unique(name: &str, sheet: &str) {
         assert!(!seen.contains(&key), "{name}: two texts share the position {x}, {y}");
         seen.push(key);
         cursor = y_start + y_end;
+    }
+}
+
+struct TextRun {
+    x: f64,
+    y: f64,
+    size: f64,
+    bounds: (f64, f64, f64, f64),
+    anchor_end: bool,
+    content: String,
+}
+
+impl TextRun {
+    /// Estimated ink box: `0.6 em` per ASCII character and one `em` otherwise.
+    fn ink(&self) -> (f64, f64, f64, f64) {
+        let width = text_width_mm(&self.content, self.size);
+        let left = if self.anchor_end { self.x - width } else { self.x };
+        (left, self.y - self.size * 0.8, width, self.size)
+    }
+}
+
+fn text_runs(sheet: &str) -> Vec<TextRun> {
+    let mut runs = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = sheet[cursor..].find("<text ") {
+        let start = cursor + found;
+        let tag_end = start + sheet[start..].find('>').expect("the text tag closes");
+        let tag = &sheet[start..tag_end];
+        let content_start = tag_end + 1;
+        let content_end = content_start + sheet[content_start..].find("</text>").expect("the text closes");
+        let box_start = tag.find("data-box=\"").expect("a box") + "data-box=\"".len();
+        let box_end = box_start + tag[box_start..].find('"').expect("the box closes");
+        let values: Vec<f64> = tag[box_start..box_end].split(',').map(|value| value.parse().expect("a box number")).collect();
+        runs.push(TextRun {
+            x: attribute(tag, "x"),
+            y: attribute(tag, "y"),
+            size: attribute(tag, "font-size"),
+            bounds: (values[0], values[1], values[2], values[3]),
+            anchor_end: tag.contains("text-anchor=\"end\""),
+            content: sheet[content_start..content_end].to_string(),
+        });
+        cursor = content_end;
+    }
+    runs
+}
+
+/// The inner frame rectangle drawn by `data-frame`.
+fn inner_frame(sheet: &str) -> (f64, f64, f64, f64) {
+    let start = sheet.find("<g data-frame=\"true\"").expect("a frame group");
+    let end = start + sheet[start..].find("</g>").expect("the frame closes");
+    let group = &sheet[start..end];
+    let mut rects = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = group[cursor..].find("<rect ") {
+        let open = cursor + found;
+        let close = open + group[open..].find('>').expect("the rect closes");
+        let tag = &group[open..close];
+        rects.push((attribute(tag, "x"), attribute(tag, "y"), attribute(tag, "width"), attribute(tag, "height")));
+        cursor = close;
+    }
+    assert_eq!(rects.len(), 2, "the frame draws the outer and inner rectangle");
+    rects[1]
+}
+
+fn title_group(sheet: &str) -> &str {
+    let start = sheet.find("<g data-title-block=\"true\">").expect("a title block");
+    let end = start + sheet[start..].find("</g>").expect("the title block closes");
+    &sheet[start..end]
+}
+
+/// Layout guarantees shared by every SVG sheet: the title block sits inside the
+/// inner frame with a two millimetre bottom gap, each text box and primitive
+/// stays inside the frame and no two labels overlap.
+fn assert_layout_quality(name: &str, sheet: &str) {
+    let (ix, iy, iw, ih) = inner_frame(sheet);
+    let inner_bottom = iy + ih;
+    let title = title_group(sheet);
+
+    let mut rules = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = title[cursor..].find("<line ") {
+        let open = cursor + found;
+        let close = open + title[open..].find('>').expect("the rule closes");
+        let tag = &title[open..close];
+        rules.push((attribute(tag, "x1"), attribute(tag, "y1"), attribute(tag, "x2"), attribute(tag, "y2")));
+        cursor = close;
+    }
+    let top = rules.first().copied().expect("the title block has a top rule");
+    assert!((top.1 - top.3).abs() < 1e-9 && top.0 < top.2, "{name}: the title block starts with a top rule");
+    for (x1, y1, x2, y2) in &rules {
+        for x in [*x1, *x2] {
+            assert!((ix - 0.02..=ix + iw + 0.02).contains(&x), "{name}: title rule x={x} leaves the frame");
+        }
+        for y in [*y1, *y2] {
+            assert!(
+                (iy - 0.02..=inner_bottom - 2.0 + 0.02).contains(&y),
+                "{name}: title rule y={y} is closer than 2 mm to the frame"
+            );
+        }
+    }
+
+    let runs = text_runs(sheet);
+    for run in &runs {
+        let (x, y, width, height) = run.bounds;
+        assert!(x >= ix - 0.02 && x + width <= ix + iw + 0.02, "{name}: text `{}` leaves the frame", run.content);
+        assert!(y >= iy - 0.02 && y + height <= inner_bottom + 0.02, "{name}: text `{}` leaves the frame", run.content);
+    }
+
+    for (index, first) in runs.iter().enumerate() {
+        for second in &runs[index + 1..] {
+            let a = first.ink();
+            let b = second.ink();
+            let overlap_x = (a.0 + a.2).min(b.0 + b.2) - a.0.max(b.0);
+            let overlap_y = (a.1 + a.3).min(b.1 + b.3) - a.1.max(b.1);
+            assert!(overlap_x <= 0.05 || overlap_y <= 0.05, "{name}: `{}` overlaps `{}`", first.content, second.content);
+        }
+    }
+
+    let mut edges = vec![top.0];
+    for (x1, _, x2, _) in &rules {
+        if (x1 - x2).abs() < 1e-9 && *x1 > top.0 + 1e-9 && *x1 < top.2 - 1e-9 {
+            edges.push(*x1);
+        }
+    }
+    edges.push(top.2);
+    edges.sort_by(|a, b| a.partial_cmp(b).expect("finite edges"));
+    let title_runs = text_runs(title);
+    for pair in edges.windows(2) {
+        let (left, right) = (pair[0], pair[1]);
+        let has_text = title_runs.iter().any(|run| {
+            let ink = run.ink();
+            !run.content.is_empty() && ink.0 >= left - 0.02 && ink.0 + ink.2 <= right + 0.02
+        });
+        assert!(has_text, "{name}: the title cell {left}..{right} is empty");
+    }
+
+    assert_geometry_inside_frame(name, sheet, (ix, iy, iw, ih));
+}
+
+fn assert_geometry_inside_frame(name: &str, sheet: &str, inner: (f64, f64, f64, f64)) {
+    let (ix, iy, iw, ih) = inner;
+    let frame_start = sheet.find("<g data-frame=\"true\"").expect("a frame group");
+    let frame_end = frame_start + sheet[frame_start..].find("</g>").expect("the frame closes");
+    let inside = |x: f64, y: f64| (ix - 0.02..=ix + iw + 0.02).contains(&x) && (iy - 0.02..=iy + ih + 0.02).contains(&y);
+
+    let mut cursor = 0;
+    while let Some(found) = sheet[cursor..].find("<rect ") {
+        let open = cursor + found;
+        let close = open + sheet[open..].find('>').expect("the rect closes");
+        let tag = &sheet[open..close];
+        let (x, y, width, height) =
+            (attribute(tag, "x"), attribute(tag, "y"), attribute(tag, "width"), attribute(tag, "height"));
+        let framed = open >= frame_start && open <= frame_end;
+        let page = (x, y, width, height) == (0.0, 0.0, 297.0, 210.0);
+        if !framed && !page {
+            assert!(inside(x, y) && inside(x + width, y + height), "{name}: rect {x},{y} {width}x{height} leaves the frame");
+        }
+        cursor = close;
+    }
+
+    cursor = 0;
+    while let Some(found) = sheet[cursor..].find("<line ") {
+        let open = cursor + found;
+        let close = open + sheet[open..].find('>').expect("the line closes");
+        let tag = &sheet[open..close];
+        let points = [(attribute(tag, "x1"), attribute(tag, "y1")), (attribute(tag, "x2"), attribute(tag, "y2"))];
+        for (x, y) in points {
+            assert!(inside(x, y), "{name}: line point {x},{y} leaves the frame");
+        }
+        cursor = close;
+    }
+
+    cursor = 0;
+    while let Some(found) = sheet[cursor..].find("<circle ") {
+        let open = cursor + found;
+        let close = open + sheet[open..].find('>').expect("the circle closes");
+        let tag = &sheet[open..close];
+        let (cx, cy, radius) = (attribute(tag, "cx"), attribute(tag, "cy"), attribute(tag, "r"));
+        assert!(
+            inside(cx - radius, cy - radius) && inside(cx + radius, cy + radius),
+            "{name}: circle {cx},{cy} r{radius} leaves the frame"
+        );
+        cursor = close;
+    }
+
+    cursor = 0;
+    while let Some(found) = sheet[cursor..].find("<polyline ") {
+        let open = cursor + found;
+        let close = open + sheet[open..].find('>').expect("the polyline closes");
+        let tag = &sheet[open..close];
+        let start = tag.find("points=\"").expect("points") + "points=\"".len();
+        let end = start + tag[start..].find('"').expect("the points close");
+        for pair in tag[start..end].split(' ') {
+            let (x, y) = pair.split_once(',').expect("an x,y pair");
+            let x: f64 = x.parse().expect("a numeric x");
+            let y: f64 = y.parse().expect("a numeric y");
+            assert!(inside(x, y), "{name}: polyline point {x},{y} leaves the frame");
+        }
+        cursor = close;
     }
 }
