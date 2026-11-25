@@ -499,7 +499,7 @@ writes nothing.
 ## gcode
 
 ```shell
-open-cam gcode <file> [--out program.nc]
+open-cam gcode <file> [--out program.nc] [--post <generic|grbl|mach3|fanuc>]
                 [--program-number <n>] [--line-numbers] [--line-increment <n>]
                 [--coolant <off|flood|mist>]
 ```
@@ -510,21 +510,33 @@ rings of an `--arcs arc` contour or pocket are interpolated: they render as
 `G2`/`G3` with absolute end coordinates and `I`/`J` centre offsets; every other
 move stays `G0` or `G1`.
 
+`--post` selects the machine dialect and changes only the header, the program
+number, the tool-change wording and the canned-cycle spelling; every
+coordinate, feed and toolpath stays the same:
+
+| Dialect | Header and codes |
+|---------|------------------|
+| `generic` (default) | `%` delimiters, optional `O<n>`, `G21 G90 G17 G94`, `G0`/`G1`, `G2`/`G3` with `I`/`J`, `G81`/`G82`/`G83`/`G80`, `T<n> M6`, `M3`/`M5`, `M7`/`M8`/`M9` and `M30` |
+| `grbl` | no `%` and no `O`, header `G21 G90 G17`, no `M6`, and every `G81`/`G82`/`G83` expanded into `G0`/`G1` moves with `G4 P<dwell>`; `M3`/`M5`, `M7`/`M8`/`M9` and `M30` are kept |
+| `mach3` | `%` delimiters, header `G21 G90 G17 G94 G40 G49 G80`, `T<n> M6`, `G81`/`G82`/`G83`/`G80` and `M30` |
+| `fanuc` | `%` delimiters, four-digit `O<n>` (required, `1 … 9999`), header `G21 G90 G17 G94 G40 G49 G80`, `T<n> M6`, `G98` on every cycle line and `M30` |
+
 The post options change only the program text, never a move, feed or cycle:
 
 | Option | Effect |
 |--------|--------|
-| `--program-number <n>` | emits `O<n>` immediately after the leading `%` |
-| `--line-numbers` | prefixes every line between the two `%` lines with `N10`, `N20`, … |
+| `--program-number <n>` | emits `O<n>` immediately after the leading `%`; required by `fanuc` (zero-padded to four digits) and rejected by `grbl` and `mach3` |
+| `--line-numbers` | prefixes every line between the two `%` lines with `N10`, `N20`, …; rejected by `grbl` |
 | `--line-increment <n>` | distance between two line numbers, at least `1` (default `10`) |
 | `--coolant flood` | emits `M8` after the spindle start of each operation and `M9` before `M5` |
 | `--coolant mist` | emits `M7` after the spindle start of each operation and `M9` before `M5` |
 
-`--coolant off` and every omitted option render the plain program byte for byte.
-Units `G21`, absolute mode `G90`, the `G17` plane and `G94` feed mode stay
-fixed. A program number of zero, a line increment of zero or an unknown coolant
-reports `post/invalid` with exit code `1`. `export --format gcode` always uses
-the defaults.
+`--coolant off` and every omitted option render the plain generic program byte
+for byte. Units `G21` and absolute mode `G90` stay fixed in every dialect. A
+program number of zero, a line increment of zero, an unknown coolant, an unknown
+dialect or a dialect/option combination it cannot express reports
+`post/invalid` with exit code `1`. `export --format gcode` always uses the
+generic defaults.
 
 ## sequence
 

@@ -41,7 +41,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | operation deletion (self-contained operations, last operation allowed) | ✅ supported |
 | operation duplication (every field copied, inserted after the source, generated `op-N`) | ✅ supported |
 | operation reordering (final 0-based index, same-index no-op keeps the revision) | ✅ supported |
-| G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
+| G-code post options (dialect, program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | DXF import, ASCII 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE` → one `engrave` operation each | ✅ supported |
 | G-code import, absolute-millimetre `G0`/`G1`/`G2`/`G3` subset → one `engrave` operation per cutting run | ✅ supported |
 | DXF export, ASCII `LINE`, `LWPOLYLINE` and `CIRCLE` of the stock, outlines, islands and drill holes, with a `TABLES` layer table and `$EXTMIN`/`$EXTMAX` extents | ✅ supported |
@@ -57,7 +57,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | turning | ❌ not implemented |
 | four-axis and five-axis work | ❌ not implemented |
 | STEP import | ❌ not implemented |
-| vendor post-processors | ❌ not implemented |
+| vendor post-processor subsets (`grbl`, `mach3`, `fanuc`) | ✅ supported |
 
 ## Algorithms
 
@@ -226,16 +226,28 @@ The machine-readable version is printed by `open-cam capabilities` and by
     document keeps its revision, otherwise the reordered document is validated
     and saved atomically and the report carries the new revision. Sequencing
     changes no operation field, move or feed.
-17. **G-code post options.** `programNumber`, `lineNumbers`, `lineIncrement` and
-    `coolant` change only the text around the moves. `programNumber` emits
-    `O<n>` immediately after the leading `%`; `lineNumbers` prefixes every line
-    strictly between the two `%` markers with a sequential `N` word starting at
-    `lineIncrement` and rising by it; `coolant` emits `M8` (`flood`) or `M7`
-    (`mist`) after the spindle start of every operation and closes it with `M9`
-    before `M5`. Units `G21` and absolute mode `G90` stay fixed. Every default
-    emits exactly the program of the plain writer, and no option changes a
-    coordinate, a feed, an arc or a drilling cycle. A program number of zero, a
-    line increment of zero or an unknown coolant reports `post/invalid`.
+17. **G-code post options.** `post` selects the machine dialect: `generic`
+    (default), `grbl`, `mach3` or `fanuc`. `programNumber`, `lineNumbers`,
+    `lineIncrement` and `coolant` change only the text around the moves.
+    `programNumber` emits `O<n>` immediately after the leading `%`; `fanuc`
+    requires it and zero-pads it to four digits (`O0007`), while `grbl` and
+    `mach3` reject it. `lineNumbers` prefixes every line strictly between the
+    two `%` markers with a sequential `N` word starting at `lineIncrement` and
+    rising by it; `grbl` rejects line numbers because its parser does not read
+    `N` words. `coolant` emits `M8` (`flood`) or `M7` (`mist`) after the
+    spindle start of every operation and closes it with `M9`. Units `G21` and
+    absolute mode `G90` stay fixed in every dialect. `grbl` writes no `%`
+    delimiters and no `M6`, keeps `T` and the tool data in a comment, and
+    expands every `G81`/`G82`/`G83` into explicit `G0`/`G1` moves (with
+    `G4 P<dwell>` for a bottom dwell and full retract between peck steps)
+    because GRBL has no canned cycles. `mach3` and `fanuc` add the
+    `G40 G49 G80` safety block to the header; `fanuc` prefixes every cycle line
+    with `G98`. Every dialect emits `M30`, and no option or dialect changes a
+    coordinate, a feed, an arc or a drilling depth. The generic defaults emit
+    exactly the program of the plain writer. A program number of zero, a line
+    increment of zero, an unknown coolant, an unknown dialect, a program number
+    outside `1 … 9999` on `fanuc` or an option the dialect cannot express
+    reports `post/invalid`.
 18. **Drill patterns.** A `pattern` replaces the explicit `holes` list; a drill
     that declares both reports `operation/invalid`. A `grid` starts at the
     operation anchor `(x, y)` and emits `columns × rows` holes in row-major
@@ -489,9 +501,23 @@ XY plane, at the cutting feed. Every other move stays `G0` or `G1`.
 becomes `O<n>` right after the leading `%`, line numbers prefix every interior
 line with `N<n>` starting at `lineIncrement`, and coolant emits `M8` or `M7`
 after `S… M3` and `M9` before `M5` of every operation. The defaults render the
-plain program byte for byte. Units `G21`, absolute mode `G90`, the `G17` plane
-and `G94` feed mode stay fixed, so the writer still never emits `G20`, `G91` or
-a vendor dialect.
+plain program byte for byte. Units `G21` and absolute mode `G90` stay fixed in
+every dialect, so the writer never emits `G20` or `G91`.
+
+The optional dialects change only the text:
+
+| Dialect | `%` | `O` | Header | Tool change | Canned cycles |
+|---------|-----|-----|--------|-------------|---------------|
+| `generic` | yes | optional | `G21 G90 G17 G94` | `T<n> M6` | `G81`/`G82`/`G83`, `G80` |
+| `grbl` | no | rejected | `G21 G90 G17` | comment only | expanded to `G0`/`G1`, `G4 P` |
+| `mach3` | yes | rejected | `G21 G90 G17 G94 G40 G49 G80` | `T<n> M6` | `G81`/`G82`/`G83`, `G80` |
+| `fanuc` | yes | required, four digits | `G21 G90 G17 G94 G40 G49 G80` | `T<n> M6` | `G98 G81`/`G82`/`G83`, `G80` |
+
+Every dialect emits `G0`/`G1` moves, `G2`/`G3` arcs with `I`/`J`, `M3`/`M5`
+spindle control, the selected `M7`/`M8`/`M9` coolant and `M30`. GRBL writes no
+`G94` and no `M6`; the tool number and data stay in a comment. Expanding a GRBL
+cycle produces the same rapid, plunge, dwell and retract motion the cycle
+performs, including full retract between peck steps.
 
 ## Validation
 
@@ -552,7 +578,7 @@ outside the stock) do not make `ok` false.
 | `tests/operation_duplicate.rs` | every field copied per kind, insertion after the source, supplied and generated `op-N` ids, empty and clashing ids, unknown source, failed validation leaving the file byte-identical, revision bump, round trip, determinism and the unsaved candidate |
 | `tests/operation_reorder.rs` | move up, move down and to the first and last index, every field preserved, same-index no-op without a write or revision bump, out-of-range and unknown-id codes, failed validation leaving the file byte-identical and the revision unchanged, derived reports following the new order without changing ids, determinism and round trip |
 | `tests/gcode.rs` | header/footer, `T<n> M6`, `G81`/`G80`, clearance plane, byte identity |
-| `tests/post.rs` | default byte identity, empty request defaults, `O` program number placement, line numbering and increment, `M8`/`M7`/`M9` pairing, unchanged moves, `post/invalid` codes and determinism |
+| `tests/post.rs` | default byte identity, empty request defaults, `O` program number placement, line numbering and increment, `M8`/`M7`/`M9` pairing, GRBL wrapper/tool-change omissions and cycle expansion including peck and dwell, Mach3 safety block with unchanged coordinates, Fanuc four-digit `O` and `G98` cycles, dialect-option rejection, `post/invalid` codes and determinism per dialect |
 | `tests/sequence.rs` | stable tool grouping, before/after tool-change counts, per-tool order, single-tool and empty documents, source immutability, applied revision and idempotent apply, determinism |
 | `tests/validation.rs` | every error code above and warning-only documents |
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
@@ -635,11 +661,14 @@ outside the stock) do not make `ok` false.
   or per-operation overrides. Import is an id-based merge with no conflict
   resolution beyond `tool/duplicate-id`; a tool already declared in the document
   must be removed first.
-- G-code post options cover a program number, line numbering and coolant only.
-  There are no configurable header/footer templates, no inch output (`G20`), no
-  incremental mode (`G91`), no tool-length compensation, subprograms, probing or
-  vendor dialects. Every option leaves the generated moves, feeds and cycles
-  untouched.
+- G-code post options cover a dialect header, a program number, line numbering
+  and coolant only. There are no configurable header/footer templates, no inch
+  output (`G20`), no incremental mode (`G91`), no tool-length compensation,
+  subprograms, probing or arbitrary vendor dialects. The `grbl`, `mach3` and
+  `fanuc` subsets stay inside the same absolute-millimetre move vocabulary: a
+  GRBL program expands canned cycles rather than emitting them, a Mach3 and
+  Fanuc program keeps the generic cycles, and no dialect changes the generated
+  moves, feeds or depths.
 - Operation sequencing groups by tool alone: tools keep their first-appearance
   order and the operations inside a tool keep their document order. It does not
   shorten travel, merge operations, reorder for fixturing or feature

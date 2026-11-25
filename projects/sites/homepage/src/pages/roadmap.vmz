@@ -124,8 +124,8 @@ const NEXT = [
     { gate: "Adaptive clearing", reason: "constant-engagement strategies are not built" },
     { gate: "Turning", reason: "the model is prismatic milling only" },
     { gate: "Four-axis", reason: "no rotary axis in the document or post" },
-    { gate: "STEP / DXF import", reason: "geometry must currently be declared as numbers" },
-    { gate: "Vendor posts", reason: "only the generic absolute-millimetre post exists" },
+    { gate: "STEP import", reason: "only ASCII 2D DXF import exists, no STEP or solid input" },
+    { gate: "Full vendor posts", reason: "only the GRBL, Mach3 and Fanuc subsets are covered" },
 ];
 
 export default class RoadmapPage {
