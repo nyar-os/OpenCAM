@@ -560,7 +560,7 @@ feed.
 ## export
 
 ```shell
-open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--kind <kind>] [--out <path>]
+open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--kind <kind>] [--ops <1,3,5>] [--out <path>]
 ```
 
 | Format | Content |
@@ -569,7 +569,7 @@ open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--kind <kind>] [-
 | `json` | the toolpath report |
 | `csv` | one row per move: operation, kind, from/to, length, feed |
 | `md` | a Markdown stock/tool/operation summary |
-| `svg` | a vector drawing with a millimetre `viewBox` at 8 px/mm |
+| `svg` | a framed A4 landscape drawing with a measured title block and two-column legend, `viewBox` in millimetres and a 1040 × 735 px default size |
 | `pdf` | the same drawing as a one-page A4 landscape PDF 1.4 |
 | `dxf` | the document geometry as ASCII DXF `LINE`, `LWPOLYLINE` and `CIRCLE` entities |
 
@@ -581,36 +581,47 @@ open-cam export <file> --format gcode|json|csv|md|svg|pdf|dxf [--kind <kind>] [-
 | `tool-list` | one table row per declared tool: id, name, number, diameter, radius, flutes, spindle, feed and plunge |
 | `stock-setup` | the stock with the nominal operation outlines (rect, circle, engrave polyline, drill rings) numbered by document order |
 | `depth-map` | the cutting chains coloured by Z level, labelled with their depths and shaded from the first to the deepest level |
+| `operation-sheet` | one table row per operation: sequence, type and id, tool, diameter, depth, stepover, feed, spindle, estimated time and toolpath length; columns are measured and numbers right aligned |
+| `stock-removal` | the stepped stock-removal section along the X centre line, with removed bands stacked by operation and cumulative depth, the final part outline and the stock allowance below the cut floor |
+
+`--ops 1,3,5` draws only the listed one-based operations, in document order;
+omitted draws every operation. The operation colours, legend rows and title
+count follow the selection, so `--ops 1` shows `1 of 5 operation(s)`. The filter
+applies to every kind; an invalid number reports `cli/invalid-number`.
 
 The `tool-list`, `stock-setup` and `depth-map` sheets never regenerate a
-toolpath beyond the cutting chains the depth map needs. A report carries
+toolpath beyond the cutting chains the depth map needs. The `operation-sheet`
+and `stock-removal` sheets reuse the existing toolpath report. A report carries
 `kind` next to `format`. An unknown kind reports `cli/unknown-kind` and exits
 with code `1`.
 
 `--out` is required for `gcode`, `json`, `csv`, `md` and `dxf`. An `svg` or `pdf`
 drawing is written to `--out` when given and printed to stdout otherwise, so it
-can be piped or redirected. With `--out`, the command prints the usual report
-(`format`, `path`, `files`, `bytes` and `dropped`); a drawing sent to stdout is
-printed unchanged. `dropped` counts non-ASCII characters the PDF font replaced
-with `?`; the CLI also prints that count to stderr. SVG keeps Unicode.
+can be piped or redirected. The report prints `kind`, `format` and `dropped`; a
+drawing sent to stdout is printed unchanged. `dropped` counts non-ASCII
+characters the PDF font replaced with `?`; the CLI also prints that count to
+stderr. SVG keeps Unicode.
 
 A `toolpath` or `depth-map` drawing is rendered from the toolpath report,
 never recomputed:
 
-- the stock rectangle with its width × depth × height label;
+- the stock rectangle and the toolpath share one uniform fit with an 8 % margin,
+  so the stock fills at least 65 % of the drawable area;
 - one cutting polyline per operation, in a stable palette by operation index
   (`face`/`contour`/… colours follow the list position, not the clock);
-- rapid `G0` moves as light dashed lines in one underlay below the cutting
-  polylines;
+- `face` and `pocket` clearing paths as thin 0.65-opacity lines, so cutting feed
+  stays dominant when five operations overlap;
+- rapid `G0` moves as pale short 0.8/1.4 dashes in one underlay below every cut;
 - pocket island outlines (rect polygon, circle) in a slate colour;
 - a thick burnt-orange marker segment per contour holding tab;
-- a ring at the operation start and a dot at every plunge point;
-- a legend that names cutting moves, rapid moves, plunge/start points, the
-  island and tab markers when present, and one row per operation with its kind,
-  id and tool diameter/radius;
-- a title block with the document id, revision, units, operation count,
-  estimated time and scale (SVG is 1:1 at 8 px/mm; PDF is fitted to the page and
-  prints the resulting percentage).
+- a ring at the operation start, a dot at every plunge point and one hollow ring
+  of the tool radius per drill hole;
+- a two-column legend with 3 mm samples that names cutting moves, rapid moves,
+  plunge/start points, drill rings, the island and tab markers when present, and
+  one row per operation with its number, kind and id, and tool diameter;
+- an A4 landscape frame with a title block sized from its measured text (the
+  document id, revision, units, operation count, estimated time and stock size),
+  so no cell text crosses a vertical rule.
 
 Arc moves are drawn as polylines sampled at the engine's ring resolution
 (72 chords per turn) with the exact move endpoint, so the drawing matches the

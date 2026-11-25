@@ -50,7 +50,9 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | JSON / CSV / Markdown reports | ✅ supported |
 | SVG toolpath drawing (stock, cuts, rapids, markers, legend, title block) | ✅ supported |
 | PDF toolpath drawing (one A4 landscape page, fitted and centred) | ✅ supported |
-| `tool-list`, `stock-setup` and `depth-map` sheets in SVG and PDF (`--kind`) | ✅ supported |
+| SVG/PDF drawings with a measured A4 frame, title block, two-column legend and per-operation colours | ✅ supported |
+| `tool-list`, `stock-setup`, `depth-map`, `operation-sheet` and `stock-removal` sheets in SVG and PDF (`--kind`) | ✅ supported |
+| `--ops 1,3,5` operation filter on drawings | ✅ supported |
 | generic absolute-millimetre G-code | ✅ supported |
 | 3D surfacing, STL/solid input | ❌ not implemented |
 | adaptive clearing | ❌ not implemented |
@@ -343,9 +345,12 @@ The machine-readable version is printed by `open-cam capabilities` and by
     saved revision.
 26. **Vector drawings.** `export svg` and `export pdf` project the stock and the
     moves of the toolpath report onto one sheet; no toolpath is regenerated.
-    The stock rectangle is drawn with its width × depth × height label, every
-    cutting move becomes a polyline per operation, rapid `G0` moves become light
-    dashed lines (a vertical rapid has no XY extent and is skipped), each plunge
+    The stock rectangle is drawn on a pale fill and the stock outline and every
+    move share one uniform fit with an 8 % margin, so the stock fills at least
+    65 % of the drawable area. Every cutting move becomes a polyline per
+    operation; `face` and `pocket` clearing paths use a thin 0.18 mm line at 45 %
+    opacity so cutting feed stays dominant, rapid `G0` moves become pale short
+    0.8/1.4 dashes (a vertical rapid has no XY extent and is skipped), each plunge
     point becomes a dot and the first non-rapid move of an operation gets a ring.
     Pocket islands are drawn as their nominal outlines (rect as a closed
     polygon, circle as a circle) in a dedicated slate colour below the cutting
@@ -359,21 +364,22 @@ The machine-readable version is printed by `open-cam capabilities` and by
     from its `from`, `to` and `centre`, and the exact move endpoint is appended,
     so the drawing matches the linear ring output without a new tolerance.
     Operation colours follow the document index through a fixed eight-colour
-    palette, so equal documents produce equal colours. The legend explains the
-    cutting, rapid and plunge/start symbols, adds island-outline and holding-tab
-    rows only when the document has them, and names every operation with its
-    kind, id and tool diameter/radius. The title block carries the document id
-    (file stem), revision, units, operation count, estimated time and scale.
-    SVG uses a millimetre `viewBox` at 8 px per millimetre. PDF is one A4
+    palette, so equal documents produce equal colours. The two-column legend
+    uses 3 mm samples and explains the cutting, rapid, plunge/start and drill
+    symbols, adds island-outline and holding-tab rows only when the document has
+    them, and names every operation with its number, kind, id and tool diameter.
+    The title block sizes each cell from its measured text, so no label crosses a
+    vertical rule; it carries the document id (file stem), revision, units,
+    operation count, estimated time and stock size.
+    SVG uses a millimetre `viewBox` with a 1040 × 735 px default size. PDF is one A4
     landscape page (842 × 595 pt) with Helvetica, `1 mm = 2.834646 pt`, fitted
-    and centred above the legend and title block; the title block reports the
-    resulting percentage of 1:1. Coordinates are rounded to three decimals and
+    and centred above the legend and title block. Coordinates are rounded to three decimals and
     `-0` is normalised, operations keep document order and no timestamp is
     written, so repeated runs are byte-identical. An empty document still
     produces a valid empty sheet with the stock and title block. PDF text is
     ASCII-only: every non-ASCII character becomes `?` and is counted in the
     report's `dropped` field. SVG is XML with escaped text and keeps Unicode.
-    The same exporter also renders three further sheets selected by `--kind`
+    The same exporter also renders five further sheets selected by `--kind`
     and reported as `kind`: `tool-list` prints one table row per declared tool
     in document order (id, name, number, diameter, radius, flutes, spindle,
     feed, plunge) and `no tools declared` for an empty table; `stock-setup`
@@ -383,9 +389,24 @@ The machine-readable version is printed by `open-cam capabilities` and by
     numbered by document order; `depth-map` draws only the cutting chains,
     groups them per Z level, shades each level from the full operation colour
     to 35 % at the deepest level, labels every level `Z<depth>` and keeps the
-    operation legend. All sheets share the title block and are byte-identical
-    for equal documents. `kind` defaults to `toolpath` and only affects `svg`
-    and `pdf`; an unknown kind reports `cli/unknown-kind`.
+    operation legend; `operation-sheet` prints one table row per operation with
+    sequence, type and id, tool, diameter, depth, stepover, feed, spindle,
+    estimated time and toolpath length, measured columns and right-aligned
+    numbers; `stock-removal` draws the stepped section along the X centre line,
+    stacking removed bands by operation and cumulative depth, highlighting the
+    final part outline and labelling the stock allowance below the cut floor.
+    All sheets share the A4 landscape frame, the content fit and the measured
+    title block, and are byte-identical for equal documents. `kind` defaults to
+    `toolpath` and only affects `svg` and `pdf`; an unknown kind reports
+    `cli/unknown-kind`. Every sheet accepts `--ops 1,3,5` to draw a subset; the
+    legend and title count then describe the selected operations only.
+    The toolpath sheet uses a layered weight: `face`/`pocket` clearing paths are
+    thin 0.65-opacity lines, cutting feed keeps the operation colour at 0.5 mm,
+    rapid `G0` moves are pale short dashes in one underlay below every cut, and
+    start rings, plunge dots and drill rings stay saturated. The legend uses
+    3 mm samples in two columns, the title block sizes each cell from its
+    measured text, and the stock outline and toolpath share one uniform fit with
+    an 8 % margin (the stock fills at least 65 % of the drawable area).
 27. **DXF import.** `import dxf` reads the `ENTITIES` section of an ASCII DXF
     file and turns every supported 2D entity into one `engrave` operation that
     references a fixed `engrave` tool (0.2 mm, 12 000 rpm, 300 mm/min feed,
@@ -704,6 +725,7 @@ outside the stock) do not make `ok` false.
   per turn; the drawing does not emit SVG/PDF arc operators. PDF text uses
   base-14 Helvetica and is ASCII-only, so non-ASCII operation ids or document
   names become `?` (reported as `dropped`); SVG keeps Unicode. SVG is a single
-  `viewBox` at a fixed 8 px/mm and PDF is always one fitted A4 landscape page,
-  so page size, scale, orientation and colours are not configurable, and a
-  drawing never replaces the G-code or the JSON/CSV/Markdown reports.
+  `viewBox` at a 1040 × 735 px default size and PDF is always one fitted A4 landscape page,
+  so page size, scale, orientation and colours are not configurable; `--ops` only
+  filters which operations are drawn, and a drawing never replaces the G-code or
+  the JSON/CSV/Markdown reports.
