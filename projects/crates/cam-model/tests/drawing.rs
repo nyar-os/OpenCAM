@@ -1,6 +1,8 @@
 //! SVG and PDF toolpath drawings.
 
-use cam_model::{CamDocument, Hole, Operation, OperationKind, PathPoint, Stock, Tool, generate_toolpaths, pdf, svg};
+use cam_model::{
+    CamDocument, Hole, Island, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool, generate_toolpaths, pdf, svg,
+};
 
 fn tool() -> Tool {
     Tool {
@@ -181,4 +183,72 @@ fn non_ascii_text_is_a_loss_in_pdf_only() {
     let sheet = pdf(&document, &report, "bracket");
     assert!(sheet.dropped > 0, "the non-ASCII operation id is counted");
     assert!(!sheet.text.contains('槽'), "PDF text degrades to ASCII");
+}
+
+#[test]
+fn pocket_islands_get_nominal_outlines_and_a_legend_row() {
+    let mut doc = document();
+    let mut pocket = Operation::new("island-pocket", OperationKind::Pocket, "t6", 2.0, 1.0);
+    pocket.x = 20.0;
+    pocket.y = 30.0;
+    pocket.width = 50.0;
+    pocket.height = 35.0;
+    pocket.islands = vec![
+        Island::new(35.0, 45.0, 12.0, 10.0),
+        Island { x: 54.0, y: 50.0, width: 8.0, height: 8.0, shape: Some("circle".into()) },
+    ];
+    doc.operations.push(pocket);
+    let report = generate_toolpaths(&doc).expect("the sample is machineable");
+
+    let sheet = svg(&doc, &report, "islands");
+    assert!(sheet.text.contains("data-islands=\"true\""), "island outlines need their own group");
+    assert_eq!(sheet.text.matches("#475569").count(), 3, "rect polygon, circle and one legend row");
+    assert!(sheet.text.contains("<polygon"), "the rect island is a closed outline");
+    assert!(sheet.text.contains("pocket island (nominal outline)"), "the legend explains the island outline");
+
+    let page = pdf(&doc, &report, "islands");
+    assert_eq!(page.text.matches("0.278 0.333 0.412").count(), 3, "island colour appears twice plus the legend row");
+    assert!(page.text.contains("pocket island \\(nominal outline\\)"));
+
+    // A document without islands must not grow the extra legend row.
+    let plain = document();
+    let report = generate_toolpaths(&plain).expect("the sample is machineable");
+    let sheet = svg(&plain, &report, "plain");
+    assert!(!sheet.text.contains("pocket island (nominal outline)"));
+    assert!(!sheet.text.contains("data-islands"));
+}
+
+#[test]
+fn contour_tabs_get_marker_segments_and_a_legend_row() {
+    let mut document = document();
+    let mut contour = Operation::new("tabbed", OperationKind::Contour, "t6", 4.0, 2.0);
+    contour.x = 20.0;
+    contour.y = 20.0;
+    contour.width = 40.0;
+    contour.height = 20.0;
+    contour.tabs = Some(TabSettings::new(4, 6.0, 1.5));
+    document.operations.push(contour);
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+
+    let sheet = svg(&document, &report, "tabs");
+    let group_start = sheet.text.find("data-operation=\"tabbed\"").unwrap();
+    let group_end = sheet.text[group_start..].find("</g>").unwrap();
+    let group = &sheet.text[group_start..group_start + group_end];
+    assert_eq!(group.matches("#9a3412").count(), 4, "one thick marker per tab, repeated levels merged");
+    assert!(sheet.text.contains("holding tab (lifted traverse)"), "the legend explains the tab marker");
+
+    let page = pdf(&document, &report, "tabs");
+    assert!(page.text.contains("0.604 0.204 0.071"), "the tab colour is painted in the PDF too");
+    assert!(page.text.contains("holding tab \\(lifted traverse\\)"));
+}
+
+#[test]
+fn rapids_form_an_underlay_below_the_cutting_moves() {
+    let document = document();
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let sheet = svg(&document, &report, "layers");
+    assert!(
+        sheet.text.find("data-rapids=\"true\"").unwrap() < sheet.text.find("<polyline").unwrap(),
+        "dashed rapids must be painted before the cutting polylines"
+    );
 }

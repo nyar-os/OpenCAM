@@ -2,13 +2,18 @@
 //!
 //! [`svg`] and [`pdf`] draw the stock outline and the moves [`crate::toolpath`]
 //! already generated: cutting polylines, dashed rapid traverses, plunge and
-//! start markers, one legend row per operation and a title block. Nothing here
-//! regenerates a toolpath, and every sheet is deterministic: coordinates are
-//! rounded to three decimals, operations keep document order and no timestamp
-//! is written.
+//! start markers, one legend row per operation and a title block. Pocket
+//! islands are added as their nominal outlines and contour holding tabs as
+//! thick marker segments on the lifted traverses, so the sheet shows the
+//! geometry the moves only avoid. Rapids form an underlay below the cutting
+//! polylines. Nothing here regenerates a toolpath, and every sheet is
+//! deterministic: coordinates are rounded to three decimals, operations keep
+//! document order and no timestamp is written.
+
+use std::collections::HashSet;
 
 use crate::{
-    model::{CamDocument, OperationKind},
+    model::{CamDocument, Island, OperationKind},
     toolpath::{Move, MoveKind, OperationPath, ToolpathReport},
 };
 
@@ -37,10 +42,18 @@ const PALETTE: [(&str, [u8; 3]); 8] = [
 ];
 
 const STOCK_COLOR: &str = "#94a3b8";
+const STOCK_RGB: [u8; 3] = [148, 163, 184];
 const INK: &str = "#1f2933";
+const INK_RGB: [u8; 3] = [31, 41, 51];
 const MUTED: &str = "#64748b";
+const ISLAND_COLOR: &str = "#475569";
+const ISLAND_RGB: [u8; 3] = [71, 85, 105];
+const TAB_COLOR: &str = "#9a3412";
+const TAB_RGB: [u8; 3] = [154, 52, 18];
 const PATH_WIDTH_MM: f64 = 0.5;
 const RAPID_WIDTH_MM: f64 = 0.3;
+const ISLAND_WIDTH_MM: f64 = 0.35;
+const TAB_WIDTH_MM: f64 = 1.4;
 const DRILL_RING_WIDTH_MM: f64 = 0.5;
 const PX_PER_MM: f64 = 8.0;
 const PAD_MM: f64 = 5.0;
@@ -64,10 +77,19 @@ const MM_TO_PT: f64 = 2.834_646;
 /// carries the document id, revision, units, operation count, estimated time
 /// and scale. An empty document still produces a valid sheet.
 pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
-    let drawings: Vec<OpDrawing> =
-        report.operations.iter().map(|operation| project(operation, drill_radius(document, operation))).collect();
+    let drawings: Vec<OpDrawing> = report
+        .operations
+        .iter()
+        .map(|operation| project(operation, drill_radius(document, operation), report.safe_z))
+        .collect();
+    let islands: Vec<&Island> = document
+        .operations
+        .iter()
+        .filter(|operation| operation.kind == OperationKind::Pocket)
+        .flat_map(|operation| &operation.islands)
+        .collect();
     let frame = frame(document, &drawings);
-    let legend = legend(document, report);
+    let legend = legend(document, report, &drawings);
     let legend_height = legend.len() as f64 * LEGEND_ROW_MM + LEGEND_GAP_MM;
     let sheet_width = frame.width.max(MIN_SHEET_WIDTH_MM);
     let sheet_height = frame.height + legend_height + TITLE_HEIGHT_MM;
@@ -109,6 +131,50 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
     ));
     svg.push_str("  </g>\n");
 
+    if !islands.is_empty() {
+        svg.push_str("  <g data-islands=\"true\">\n");
+        for island in &islands {
+            if island.shape.as_deref() == Some("circle") {
+                svg.push_str(&format!(
+                    "    <circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"{ISLAND_COLOR}\" stroke-width=\"{ISLAND_WIDTH_MM}\"/>\n",
+                    number(map_x(island.x + island.width / 2.0)),
+                    number(map_y(island.y + island.height / 2.0)),
+                    number(island.width / 2.0)
+                ));
+            }
+            else {
+                let points = [
+                    (island.x, island.y),
+                    (island.x + island.width, island.y),
+                    (island.x + island.width, island.y + island.height),
+                    (island.x, island.y + island.height),
+                ]
+                .into_iter()
+                .map(|(x, y)| format!("{},{}", number(map_x(x)), number(map_y(y))))
+                .collect::<Vec<_>>()
+                .join(" ");
+                svg.push_str(&format!(
+                    "    <polygon points=\"{points}\" fill=\"none\" stroke=\"{ISLAND_COLOR}\" stroke-width=\"{ISLAND_WIDTH_MM}\" stroke-linejoin=\"round\"/>\n"
+                ));
+            }
+        }
+        svg.push_str("  </g>\n");
+    }
+
+    svg.push_str("  <g data-rapids=\"true\">\n");
+    for drawing in &drawings {
+        for (from, to) in &drawing.rapids {
+            svg.push_str(&format!(
+                "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{STOCK_COLOR}\" stroke-width=\"{RAPID_WIDTH_MM}\" stroke-dasharray=\"1.5 1\"/>\n",
+                number(map_x(from.0)),
+                number(map_y(from.1)),
+                number(map_x(to.0)),
+                number(map_y(to.1))
+            ));
+        }
+    }
+    svg.push_str("  </g>\n");
+
     for (index, (operation, drawing)) in report.operations.iter().zip(&drawings).enumerate() {
         let (hex, _) = palette(index);
         svg.push_str(&format!(
@@ -126,9 +192,9 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
                 "    <polyline points=\"{points}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{PATH_WIDTH_MM}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n"
             ));
         }
-        for (from, to) in &drawing.rapids {
+        for (from, to) in &drawing.tabs {
             svg.push_str(&format!(
-                "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{STOCK_COLOR}\" stroke-width=\"{RAPID_WIDTH_MM}\" stroke-dasharray=\"1.5 1\"/>\n",
+                "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{TAB_COLOR}\" stroke-width=\"{TAB_WIDTH_MM}\" stroke-linecap=\"round\"/>\n",
                 number(map_x(from.0)),
                 number(map_y(from.1)),
                 number(map_x(to.0)),
@@ -206,10 +272,19 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
 /// and drawn with Helvetica. Non-ASCII characters become `?` and are counted in
 /// [`Drawing::dropped`].
 pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
-    let drawings: Vec<OpDrawing> =
-        report.operations.iter().map(|operation| project(operation, drill_radius(document, operation))).collect();
+    let drawings: Vec<OpDrawing> = report
+        .operations
+        .iter()
+        .map(|operation| project(operation, drill_radius(document, operation), report.safe_z))
+        .collect();
+    let islands: Vec<&Island> = document
+        .operations
+        .iter()
+        .filter(|operation| operation.kind == OperationKind::Pocket)
+        .flat_map(|operation| &operation.islands)
+        .collect();
     let frame = frame(document, &drawings);
-    let legend = legend(document, report);
+    let legend = legend(document, report, &drawings);
     let legend_height = legend.len() as f64 * PDF_LEGEND_ROW + 8.0;
     let title_top = PDF_MARGIN + PDF_TITLE_BLOCK;
     let legend_top = title_top + legend_height;
@@ -230,7 +305,7 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
 
     content.push_str(&format!(
         "{} RG 0.6 w [2 2] 0 d {:.2} {:.2} {:.2} {:.2} re S [] 0 d\n",
-        rgb([148, 163, 184]),
+        rgb(STOCK_RGB),
         map_x(0.0),
         map_y(0.0),
         document.stock.width * scale,
@@ -251,6 +326,46 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
         &mut dropped,
     );
 
+    for island in &islands {
+        if island.shape.as_deref() == Some("circle") {
+            push_pdf_circle(
+                &mut content,
+                map_x(island.x + island.width / 2.0),
+                map_y(island.y + island.height / 2.0),
+                island.width / 2.0 * scale,
+                ISLAND_RGB,
+                true,
+            );
+        }
+        else {
+            content.push_str(&format!(
+                "{} RG 0.8 w {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l {:.2} {:.2} l h S\n",
+                rgb(ISLAND_RGB),
+                map_x(island.x),
+                map_y(island.y),
+                map_x(island.x + island.width),
+                map_y(island.y),
+                map_x(island.x + island.width),
+                map_y(island.y + island.height),
+                map_x(island.x),
+                map_y(island.y + island.height)
+            ));
+        }
+    }
+
+    for drawing in &drawings {
+        for (from, to) in &drawing.rapids {
+            content.push_str(&format!(
+                "{} RG 0.5 w [2 2] 0 d {:.2} {:.2} m {:.2} {:.2} l S [] 0 d\n",
+                rgb(STOCK_RGB),
+                map_x(from.0),
+                map_y(from.1),
+                map_x(to.0),
+                map_y(to.1)
+            ));
+        }
+    }
+
     for (index, drawing) in drawings.iter().enumerate() {
         let colour = palette(index).1;
         for chain in &drawing.cuts {
@@ -264,10 +379,10 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
             }
             content.push_str("S\n");
         }
-        for (from, to) in &drawing.rapids {
+        for (from, to) in &drawing.tabs {
             content.push_str(&format!(
-                "{} RG 0.5 w [2 2] 0 d {:.2} {:.2} m {:.2} {:.2} l S [] 0 d\n",
-                rgb([148, 163, 184]),
+                "{} RG 3 w 1 J {:.2} {:.2} m {:.2} {:.2} l S\n",
+                rgb(TAB_RGB),
                 map_x(from.0),
                 map_y(from.1),
                 map_x(to.0),
@@ -343,6 +458,7 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
 struct OpDrawing {
     cuts: Vec<Vec<(f64, f64)>>,
     rapids: Vec<((f64, f64), (f64, f64))>,
+    tabs: Vec<((f64, f64), (f64, f64))>,
     plunges: Vec<(f64, f64)>,
     holes: Vec<(f64, f64)>,
     hole_radius: Option<f64>,
@@ -357,16 +473,30 @@ fn drill_radius(document: &CamDocument, operation: &OperationPath) -> Option<f64
     document.tools.iter().find(|tool| tool.id == operation.tool).map(|tool| tool.radius())
 }
 
-fn project(operation: &OperationPath, hole_radius: Option<f64>) -> OpDrawing {
-    let mut drawing =
-        OpDrawing { cuts: Vec::new(), rapids: Vec::new(), plunges: Vec::new(), holes: Vec::new(), hole_radius, start: None };
+fn project(operation: &OperationPath, hole_radius: Option<f64>, safe_z: f64) -> OpDrawing {
+    let mut drawing = OpDrawing {
+        cuts: Vec::new(),
+        rapids: Vec::new(),
+        tabs: Vec::new(),
+        plunges: Vec::new(),
+        holes: Vec::new(),
+        hole_radius,
+        start: None,
+    };
     let mut chain: Vec<(f64, f64)> = Vec::new();
+    let mut lifted: Vec<((f64, f64), (f64, f64))> = Vec::new();
     for movement in &operation.segments {
         match movement.kind {
             MoveKind::Rapid => {
                 flush(&mut chain, &mut drawing.cuts);
                 if (movement.from.x - movement.to.x).abs() > 1e-9 || (movement.from.y - movement.to.y).abs() > 1e-9 {
-                    drawing.rapids.push(((movement.from.x, movement.from.y), (movement.to.x, movement.to.y)));
+                    // A horizontal rapid below the clearance plane crosses a holding tab.
+                    if (movement.from.z - movement.to.z).abs() <= 1e-9 && movement.from.z < safe_z - 1e-9 {
+                        lifted.push(((movement.from.x, movement.from.y), (movement.to.x, movement.to.y)));
+                    }
+                    else {
+                        drawing.rapids.push(((movement.from.x, movement.from.y), (movement.to.x, movement.to.y)));
+                    }
                 }
             }
             MoveKind::Plunge => {
@@ -396,6 +526,30 @@ fn project(operation: &OperationPath, hole_radius: Option<f64>) -> OpDrawing {
         }
     }
     flush(&mut chain, &mut drawing.cuts);
+    // Chain consecutive lifted chords into one marker per tab, then drop the
+    // repeats the remaining Z levels produce at the same XY interval.
+    let mut merged: Vec<((f64, f64), (f64, f64))> = Vec::new();
+    for (from, to) in lifted {
+        if let Some(last) = merged.last_mut() {
+            if (last.1.0 - from.0).abs() <= 1e-6 && (last.1.1 - from.1).abs() <= 1e-6 {
+                last.1 = to;
+                continue;
+            }
+        }
+        merged.push((from, to));
+    }
+    let mut seen_tabs: HashSet<[i64; 4]> = HashSet::new();
+    drawing.tabs = merged
+        .into_iter()
+        .filter(|(from, to)| {
+            seen_tabs.insert([
+                (from.0 * 1000.0).round() as i64,
+                (from.1 * 1000.0).round() as i64,
+                (to.0 * 1000.0).round() as i64,
+                (to.1 * 1000.0).round() as i64,
+            ])
+        })
+        .collect();
     drawing
 }
 
@@ -499,26 +653,49 @@ enum Style {
     Ring,
 }
 
+#[derive(Clone, Copy)]
+enum RowColour {
+    Palette(usize),
+    Ink,
+    Rapid,
+    Island,
+    Tab,
+}
+
 struct LegendRow {
-    colour: Option<usize>,
+    colour: RowColour,
     style: Style,
     label: String,
 }
 
-fn legend(document: &CamDocument, report: &ToolpathReport) -> Vec<LegendRow> {
+fn legend(document: &CamDocument, report: &ToolpathReport, drawings: &[OpDrawing]) -> Vec<LegendRow> {
     let mut rows = vec![
-        LegendRow { colour: None, style: Style::Solid, label: "cutting move (G1/G2/G3)".to_string() },
-        LegendRow { colour: None, style: Style::Dashed, label: "rapid move (G0)".to_string() },
-        LegendRow { colour: None, style: Style::Dot, label: "plunge / start point".to_string() },
-        LegendRow { colour: None, style: Style::Ring, label: "drill hole (tool diameter)".to_string() },
+        LegendRow { colour: RowColour::Ink, style: Style::Solid, label: "cutting move (G1/G2/G3)".to_string() },
+        LegendRow { colour: RowColour::Rapid, style: Style::Dashed, label: "rapid move (G0)".to_string() },
+        LegendRow { colour: RowColour::Ink, style: Style::Dot, label: "plunge / start point".to_string() },
+        LegendRow { colour: RowColour::Ink, style: Style::Ring, label: "drill hole (tool diameter)".to_string() },
     ];
+    if document.operations.iter().any(|operation| operation.kind == OperationKind::Pocket && !operation.islands.is_empty()) {
+        rows.push(LegendRow {
+            colour: RowColour::Island,
+            style: Style::Solid,
+            label: "pocket island (nominal outline)".to_string(),
+        });
+    }
+    if drawings.iter().any(|drawing| !drawing.tabs.is_empty()) {
+        rows.push(LegendRow {
+            colour: RowColour::Tab,
+            style: Style::Solid,
+            label: "holding tab (lifted traverse)".to_string(),
+        });
+    }
     for (index, operation) in report.operations.iter().enumerate() {
         let detail = match document.tools.iter().find(|tool| tool.id == operation.tool) {
             Some(tool) => format!("tool {} d{} r{}", tool.id, number(tool.diameter), number(tool.radius())),
             None => format!("tool {}", operation.tool),
         };
         rows.push(LegendRow {
-            colour: Some(index),
+            colour: RowColour::Palette(index),
             style: Style::Solid,
             label: format!("#{} {} {}  {detail}", index + 1, operation.kind.as_str(), operation.operation),
         });
@@ -528,9 +705,11 @@ fn legend(document: &CamDocument, report: &ToolpathReport) -> Vec<LegendRow> {
 
 fn legend_hex(entry: &LegendRow) -> &'static str {
     match entry.colour {
-        Some(index) => palette(index).0,
-        None if matches!(entry.style, Style::Dashed) => STOCK_COLOR,
-        None => INK,
+        RowColour::Palette(index) => palette(index).0,
+        RowColour::Ink => INK,
+        RowColour::Rapid => STOCK_COLOR,
+        RowColour::Island => ISLAND_COLOR,
+        RowColour::Tab => TAB_COLOR,
     }
 }
 
@@ -540,8 +719,11 @@ fn legend_rgb(entry: &LegendRow) -> String {
 
 fn legend_colour(entry: &LegendRow) -> [u8; 3] {
     match entry.colour {
-        Some(index) => palette(index).1,
-        None => [31, 41, 51],
+        RowColour::Palette(index) => palette(index).1,
+        RowColour::Ink => INK_RGB,
+        RowColour::Rapid => STOCK_RGB,
+        RowColour::Island => ISLAND_RGB,
+        RowColour::Tab => TAB_RGB,
     }
 }
 
