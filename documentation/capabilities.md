@@ -20,7 +20,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | `contour` tangential lead-in / lead-out arcs (`lead`, rectangle or circle) | ✅ supported |
 | `pocket` rectangular raster clearing | ✅ supported |
 | `pocket` spiral (concentric rectangle) clearing | ✅ supported |
-| `pocket` islands (rectangular) | ✅ supported |
+| `pocket` islands (rectangular and circular) | ✅ supported |
 | `pocket` circle (concentric ring) clearing | ✅ supported |
 | `pocket` circular ring arc output (`arcs: "arc"`) | ✅ supported |
 | `pocket` wall finish pass (`finish`) | ✅ supported |
@@ -122,9 +122,12 @@ The machine-readable version is printed by `open-cam capabilities` and by
    the line into cut spans; only spans outside every keep-out zone are cut, so
    every cutting point — including the span endpoints — stays at least `r` from
    an island. The tool retracts to the clearance plane before crossing a
-   keep-out zone and plunges again on the far side. The report records
-   `islandCount`, `skippedLength` and `skippedSegments`; all three are `0` when
-   an operation has no islands.
+   keep-out zone and plunges again on the far side. An island is a rectangle by
+   default; `shape: "circle"` is a disc of diameter `width` centred in its
+   bounding box (`height` must equal `width`) and blocks the chord of its
+   keep-out circle on each line. The report records `islandCount`,
+   `skippedLength` and `skippedSegments`; all three are `0` when an operation
+   has no islands.
 9. **Drilling.** Each hole is a rapid to the centre, a plunge to
    `height − depth`, and a rapid retract. G-code uses `G81`, `G82` with `P` for a
    bottom dwell, or `G83` with `Q` for peck, at the clearance plane `R`, and
@@ -385,7 +388,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
     `LINE` (two open points) or a `LWPOLYLINE` whose flag `70` is `1` when
     closed; every `contour` and `pocket` outline becomes a closed rectangle
     `LWPOLYLINE` or, for `shape` `circle`, a `CIRCLE`; every pocket island
-    becomes a closed rectangle `LWPOLYLINE`; every `drill` hole becomes a
+    becomes a closed rectangle `LWPOLYLINE` or, for a circle island, a
+    `CIRCLE`; every `drill` hole becomes a
     `CIRCLE` of the tool radius; `face` adds no entity. Operation layers are
     the operation ids with every character outside `[A-Za-z0-9_-]` replaced
     by `-`. Coordinates are rounded to three decimals and `-0` is normalised,
@@ -444,7 +448,7 @@ a vendor dialect.
 | `operation/duplicate-id` | an operation id is declared twice, or a duplicate requests an id that is already declared |
 | `operation/unknown-id` | an update, delete or duplicate names an operation the document does not declare |
 | `operation/unknown-tool` | an operation references a missing tool |
-| `operation/island-invalid` | an island coordinate is not finite or its width/height is not positive |
+| `operation/island-invalid` | an island coordinate is not finite, its width/height is not positive, a circle island has `height` different from `width`, or its `shape` is neither `rect` nor `circle` |
 | `operation/island-outside-pocket` | an island is not fully inside its pocket |
 | `operation/island-too-close` | an island expanded by the cutter radius does not fit inside the pocket shrunk by the cutter radius |
 | `operation/island-overlap` | two expanded islands overlap, so the cutter cannot pass between them |
@@ -469,6 +473,7 @@ outside the stock) do not make `ok` false.
 | `tests/toolpath.rs` | depth levels, closed contour, pocket containment, drill plunges, determinism |
 | `tests/estimate.rs` | toolpath cycle-time parity, per-tool change accounting, rapid-feed scaling, drill plunge/retract/traverse split, invalid request codes, serde defaults, empty document, determinism |
 | `tests/islands.rs` | island clearance, multi-island geometry, island validation codes, no-island byte identity, determinism, save/reopen |
+| `tests/island_circle.rs` | circle island validation codes, chord clearance and rapid crossings, touching circles accepted, shape round trip with unshaped rectangles, circle islands as `CIRCLE` in the DXF export |
 | `tests/spiral.rs` | spiral containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, raster byte identity, invalid strategy, spiral+islands rejection, save/reopen, G-code |
 | `tests/circle.rs` | circular containment and wall clearance, stepover ring spacing, loop count, metrics, determinism, rect byte identity, invalid shape, circle size mismatch, circle+strategy and circle+islands rejection, save/reopen, G-code |
 | `tests/circle_contour.rs` | circular contour at exactly `width / 2 + r`, 72 counter-clockwise segments and closure per level, multiple levels, linear-only G-code, rectangular byte identity, tab lift/rapid/plunge groups per level, tab intervals without cuts, on-circle points, closure, safe-z cap, single tab, tab fit and size validation, no-tab identity, ramp with tabs, circle-size mismatch, outside-stock, determinism and save/reopen |
@@ -512,7 +517,7 @@ outside the stock) do not make `ok` false.
 - Circular pockets support only concentric rings: an explicit `strategy` is
   rejected with `operation/strategy-circle` and islands with
   `operation/strategy-island`.
-- Pockets are rectangles or full circles; islands are rectangles inside a
+- Pockets are rectangles or full circles; islands are rectangles or circles inside a
   rectangular pocket. Arbitrary pocket outlines, fillets and adaptive corner
   clearing are not supported.
 - Contours are rectangles or full circles with a constant cutter-radius offset;

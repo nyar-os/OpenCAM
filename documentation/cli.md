@@ -128,7 +128,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
                       [--shape rect|circle] [--arcs linear|arc]
                       [--x <x>] [--y <y>] [--width <w>] [--height <h>]
                       [--holes <x,y;x,y>] [--pattern <layout>] [--peck <d>] [--dwell <seconds>]
-                      [--island <x,y,w,h>]...
+                      [--island <x,y,w,h|circle,x,y,d>]...
                       [--path <x,y;x,y>]
                       [--tabs <count,width,height>]
                       [--lead <radius,cw|ccw>]
@@ -139,7 +139,7 @@ open-cam operation add <file> --id <id> --kind <kind> --tool <id> --depth <d>
 |------|----------|
 | `face` | whole stock top; optional `--stepover` |
 | `contour` | `--x --y --width --height`, milled outside by the cutter radius; optional `--tabs` on a rectangle or circle; optional `--lead` tangential entry and exit arcs; `--shape circle` cuts a circular outside profile, optionally with `--arcs arc`; |
-| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings with optional `--arcs arc`, repeatable `--island` for rectangles, optional `--finish` wall loop |
+| `pocket` | `--x --y --width --height`, raster or spiral inside the cutter radius, or `--shape circle` for concentric rings with optional `--arcs arc`, repeatable `--island` for rectangles and circles, optional `--finish` wall loop |
 | `drill` | `--holes "x,y;x,y"` or `--pattern`, optional `--peck` or `--dwell` |
 | `engrave` | `--path "x,y;x,y;..."`, a polyline followed by the cutter centre line; optional `--closed` |
 
@@ -189,12 +189,15 @@ overlap). Rings advance at the cutting feed without retracting. `spiral` does
 not support islands: a pocket with `--island` and `--strategy spiral` reports
 `operation/strategy-island`. An unknown value reports `operation/invalid`.
 
-`--island x,y,w,h` is repeatable and only valid for `pocket`. Each island is a
-rectangle in the pocket's coordinate frame; the tool path skips every raster
-portion that falls inside an island expanded by the cutter radius and crosses
-the gap at the clearance plane. An island must lie inside the pocket, far enough
-from the wall that its expanded rectangle fits inside the pocket shrunk by the
-cutter radius, and expanded islands may not overlap.
+`--island` is repeatable and only valid for `pocket`. `x,y,w,h` is a rectangular
+island and `circle,x,y,d` a disc of diameter `d` centred in the bounding box
+starting at `x,y`, both in the pocket's coordinate frame; the tool path skips
+every raster portion that falls inside an island expanded by the cutter radius
+and crosses the gap at the clearance plane, a circle island blocking the chord
+of its keep-out circle on each line. An island must lie inside the pocket, far
+enough from the wall that its expanded outline fits inside the pocket shrunk by
+the cutter radius, and expanded islands may not overlap. An unknown shape or a
+non-positive diameter reports `operation/island-invalid`.
 
 `--shape rect|circle` selects the `contour` or `pocket` outline and defaults to
 `rect`. An unknown value, or `circle` on another kind, reports
@@ -584,7 +587,7 @@ open-cam stock bracket.ocam --width 120 --depth 80 --height 12
 open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 --plunge 300
 open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --ramp 8 --x 20 --y 20 --width 60 --height 40 \
-    --island 40,26,20,20
+    --island 40,26,20,20 --island circle,66,36,8
 open-cam operation add bracket.ocam --id spiral --kind pocket --tool t6 \
     --depth 3 --stepdown 1 --strategy spiral --x 20 --y 20 --width 60 --height 40
 open-cam operation add bracket.ocam --id bore --kind pocket --tool t6 \
