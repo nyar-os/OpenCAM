@@ -21,6 +21,7 @@ import { OpenCAM } from './open-cam.js';
 import type {
     ArcMode,
     CoolantMode,
+    DrawingKind,
     ExportFormat,
     Hole,
     HolePattern,
@@ -122,6 +123,13 @@ function exportFormat(ctx: CommandContext, value: string): ExportFormat {
         throw new NotImplementedError(`${value} export`);
     }
     throw fail(ctx, 'cli/unknown-format', 'cli.error.unknownFormat', { format: value });
+}
+
+function drawingKind(value: string): DrawingKind {
+    if (value === 'toolpath' || value === 'tool-list' || value === 'stock-setup' || value === 'depth-map') {
+        return value;
+    }
+    throw new OpenCAMError('cli/unknown-kind', `unknown drawing kind \`${value}\``);
 }
 
 function operationKind(value: string): OperationKind {
@@ -746,15 +754,17 @@ cli
 cli
     .command('export', 'cli.cmd.export')
     .option('--format <gcode|json|csv|md|svg|pdf|dxf>', 'cli.opt.format')
+    .option('--kind <toolpath|tool-list|stock-setup|depth-map>', 'cli.opt.drawing-kind')
     .option('--out <path>', 'cli.opt.out')
     .actionCtx(async (options, _args, ctx) =>
         guard(ctx, async () => {
-            const file = positional(ctx, options, 'export <file> --format <format> [--out <path>]');
+            const file = positional(ctx, options, 'export <file> --format <format> [--kind <kind>] [--out <path>]');
             await withDocument(file, async (document) => {
                 const format = exportFormat(ctx, text(options, 'format') ?? 'gcode');
+                const kind = drawingKind(text(options, 'kind') ?? 'toolpath');
                 const target = text(options, 'out');
                 if (target === undefined && (format === 'svg' || format === 'pdf')) {
-                    const drawing = await document.renderDrawing(format);
+                    const drawing = await document.renderDrawing(format, kind);
                     process.stdout.write(drawing.text);
                     if (drawing.dropped > 0) {
                         ctx.stderr(ctx.t('cli.warn.droppedCharacters', { count: String(drawing.dropped) }));

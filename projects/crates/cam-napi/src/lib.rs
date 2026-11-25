@@ -14,9 +14,9 @@
 use std::path::Path;
 
 use cam_model::{
-    CamError, DxfImportRequest, EstimateRequest, ExportFormat, FeedsRequest, GcodeImportRequest, Hole, HolePattern, Island,
-    LeadSettings, OpenCam, Operation, OperationDuplicate, OperationKind, OperationReorder, OperationUpdate, PathPoint,
-    PostOptions, Stock, TabSettings, Tool,
+    CamError, DrawingKind, DxfImportRequest, EstimateRequest, ExportFormat, FeedsRequest, GcodeImportRequest, Hole,
+    HolePattern, Island, LeadSettings, OpenCam, Operation, OperationDuplicate, OperationKind, OperationReorder,
+    OperationUpdate, PathPoint, PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -560,13 +560,20 @@ fn export(ctx: CallContext) -> Result<JsValue> {
 }
 
 /// Renders a document as an `svg` or `pdf` drawing and returns its text.
+///
+/// The optional third argument selects the sheet kind: `toolpath` (default),
+/// `tool-list`, `stock-setup` or `depth-map`.
 #[function]
 fn drawing(ctx: CallContext) -> Result<JsValue> {
     let path = text(&ctx, 0)?;
     let format = text(&ctx, 1)?.parse::<ExportFormat>().map_err(fail)?;
+    let kind = match optional_text(&ctx, 2)? {
+        Some(value) => value.parse::<DrawingKind>().map_err(fail)?,
+        None => DrawingKind::Toolpath,
+    };
     let mut session = OpenCam::new();
     session.open(Path::new(&path)).map_err(fail)?;
-    let report = session.drawing(format).map_err(fail)?;
+    let report = session.drawing(kind, format).map_err(fail)?;
     respond(&ctx, &report)
 }
 

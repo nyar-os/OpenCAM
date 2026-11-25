@@ -76,7 +76,8 @@
             "out": "write the result to this path (SVG and PDF drawings print to stdout when omitted)",
             "from": "file to import (a tool library, an ASCII DXF drawing or a G-code program)",
             "tolerance": "maximum chord sagitta when flattening DXF and G-code arcs, in millimetres (default 0.05)",
-            "format": "export format: gcode, json, csv, md, svg or pdf"
+            "format": "export format: gcode, json, csv, md, svg, pdf or dxf",
+            "drawing-kind": "vector sheet kind: toolpath (default), tool-list, stock-setup or depth-map"
         },
         "warn": {
             "droppedCharacters": "the drawing replaced {count} non-ASCII character(s) with `?`"

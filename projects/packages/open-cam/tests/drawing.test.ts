@@ -98,6 +98,39 @@ test('the SDK renders SVG and PDF toolpath drawings', async (t: TestContext) => 
     }
 });
 
+test('the SDK renders the tool list, stock setup and depth map sheets', async (t: TestContext) => {
+    const session = new OpenCAM();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-sheets-'));
+    try {
+        if (!(await addonAvailable(t, session))) {
+            return;
+        }
+        const file = path.join(directory, 'job.ocam');
+        await sample(session, file);
+
+        const document = await session.open(file);
+        const tools = await document.renderDrawing('svg', 'tool-list');
+        assert.equal(tools.kind, 'tool-list');
+        assert.ok(tools.text.includes('data-tool-table="true"'));
+        assert.ok(tools.text.includes('6 mm flat'), 'the tool name is a cell');
+        assert.equal(tools.dropped, 0);
+
+        const setup = await document.renderDrawing('svg', 'stock-setup');
+        assert.equal(setup.kind, 'stock-setup');
+        assert.ok(setup.text.includes('data-stock="true"'));
+        assert.ok(setup.text.includes('data-operation="profile"'));
+        assert.ok(setup.text.includes('#1 contour profile'), 'operations are annotated');
+
+        const depth = await document.renderDrawing('pdf', 'depth-map');
+        assert.equal(depth.kind, 'depth-map');
+        assert.ok(depth.text.startsWith('%PDF-1.4'));
+        assert.ok(depth.text.includes('depth map drawing \\(PDF\\)'));
+        assert.ok(depth.dropped > 0, 'the non-ASCII id is reported as a loss');
+    } finally {
+        await session.dispose();
+    }
+});
+
 test('the CLI prints a drawing to stdout or writes --out', async (t: TestContext) => {
     const session = new OpenCAM();
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cam-drawing-cli-'));
@@ -113,6 +146,9 @@ test('the CLI prints a drawing to stdout or writes --out', async (t: TestContext
         assert.ok(stdout.startsWith('<?xml'));
         assert.ok(stdout.includes('data-title-block="true"'));
         assert.ok(stdout.includes('data-operation="profile"'));
+
+        const listed = await run(process.execPath, [cli, 'export', file, '--format', 'svg', '--kind', 'tool-list']);
+        assert.ok(listed.stdout.includes('data-tool-table="true"'), 'the CLI selects the sheet kind');
 
         const target = path.join(directory, 'sheet.pdf');
         const { stdout: summary } = await run(process.execPath, [

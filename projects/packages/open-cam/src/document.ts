@@ -13,6 +13,7 @@ import type {
     CycleTimeReport,
     DocumentSummary,
     DrawingFormat,
+    DrawingKind,
     DrawingReport,
     EstimateRequest,
     ExportFormat,
@@ -214,10 +215,10 @@ export class CamDocument {
         return service.exportDocument(this.state.path, format, target);
     }
 
-    /** Renders the document as an `svg` or `pdf` toolpath drawing without writing it. */
-    async renderDrawing(format: DrawingFormat): Promise<DrawingReport> {
+    /** Renders the document as an `svg` or `pdf` sheet without writing it. */
+    async renderDrawing(format: DrawingFormat, kind: DrawingKind = 'toolpath'): Promise<DrawingReport> {
         this.assertOpen();
-        return service.drawing(this.state.path, format);
+        return service.drawing(this.state.path, format, kind);
     }
 
     /** Returns the full report. */

@@ -41,7 +41,7 @@ export interface NativeBinding {
     sequence_apply(path: string): string;
     feeds(requestJson: string): string;
     export(path: string, format: string, target: string): string;
-    drawing(path: string, format: string): string;
+    drawing(path: string, format: string, kind?: string): string;
     report(path: string): string;
 }
 

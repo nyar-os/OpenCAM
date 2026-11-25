@@ -6,14 +6,21 @@
 //! islands are added as their nominal outlines and contour holding tabs as
 //! thick marker segments on the lifted traverses, so the sheet shows the
 //! geometry the moves only avoid. Rapids form an underlay below the cutting
-//! polylines. Nothing here regenerates a toolpath, and every sheet is
+//! polylines; the first rapid of an operation is drawn from where the previous
+//! operation ended, and cutting chains are shaded from the full operation
+//! colour at the first Z level to 35 % at the deepest, with one legend row per
+//! level. Three further sheets share the same style: [`tool_list_svg`] and
+//! [`tool_list_pdf`] tabulate the declared tools, [`stock_setup_svg`] and
+//! [`stock_setup_pdf`] place the nominal operation geometry on the stock, and
+//! [`depth_map_svg`] and [`depth_map_pdf`] show only the cutting chains with
+//! their Z levels. Nothing here regenerates a toolpath, and every sheet is
 //! deterministic: coordinates are rounded to three decimals, operations keep
 //! document order and no timestamp is written.
 
 use std::collections::HashSet;
 
 use crate::{
-    model::{CamDocument, Island, OperationKind},
+    model::{CamDocument, Island, OperationKind, Tool},
     toolpath::{Move, MoveKind, OperationPath, ToolpathReport},
 };
 
@@ -77,11 +84,7 @@ const MM_TO_PT: f64 = 2.834_646;
 /// carries the document id, revision, units, operation count, estimated time
 /// and scale. An empty document still produces a valid sheet.
 pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
-    let drawings: Vec<OpDrawing> = report
-        .operations
-        .iter()
-        .map(|operation| project(operation, drill_radius(document, operation), report.safe_z))
-        .collect();
+    let drawings = project_all(document, report);
     let islands: Vec<&Island> = document
         .operations
         .iter()
@@ -182,14 +185,22 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
             escape_xml(&operation.operation),
             escape_xml(&operation.tool)
         ));
+        let levels = chain_levels(drawing);
+        let shades: Vec<String> =
+            (0..levels.len()).map(|level| shade(palette(index).1, shade_factor(level, levels.len())).0).collect();
         for chain in &drawing.cuts {
-            if chain.len() < 2 {
+            if chain.points.len() < 2 {
                 continue;
             }
-            let points =
-                chain.iter().map(|(x, y)| format!("{},{}", number(map_x(*x)), number(map_y(*y)))).collect::<Vec<_>>().join(" ");
+            let shade = &shades[level_index(&levels, chain.z)];
+            let points = chain
+                .points
+                .iter()
+                .map(|(x, y)| format!("{},{}", number(map_x(*x)), number(map_y(*y))))
+                .collect::<Vec<_>>()
+                .join(" ");
             svg.push_str(&format!(
-                "    <polyline points=\"{points}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{PATH_WIDTH_MM}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n"
+                "    <polyline points=\"{points}\" fill=\"none\" stroke=\"{shade}\" stroke-width=\"{PATH_WIDTH_MM}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n"
             ));
         }
         for (from, to) in &drawing.tabs {
@@ -232,7 +243,7 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
     svg.push_str("  <g data-legend=\"true\">\n");
     for (row, entry) in legend.iter().enumerate() {
         let baseline = legend_top + 3.0 + row as f64 * LEGEND_ROW_MM;
-        let color = legend_hex(entry);
+        let color = entry.colour.hex.as_str();
         match entry.style {
             Style::Solid => svg.push_str(&format!(
                 "    <line x1=\"2\" y1=\"{}\" x2=\"9\" y2=\"{}\" stroke=\"{color}\" stroke-width=\"0.6\"/>\n",
@@ -272,11 +283,7 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
 /// and drawn with Helvetica. Non-ASCII characters become `?` and are counted in
 /// [`Drawing::dropped`].
 pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
-    let drawings: Vec<OpDrawing> = report
-        .operations
-        .iter()
-        .map(|operation| project(operation, drill_radius(document, operation), report.safe_z))
-        .collect();
+    let drawings = project_all(document, report);
     let islands: Vec<&Island> = document
         .operations
         .iter()
@@ -368,12 +375,14 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
 
     for (index, drawing) in drawings.iter().enumerate() {
         let colour = palette(index).1;
+        let levels = chain_levels(drawing);
+        let shades: Vec<[u8; 3]> = (0..levels.len()).map(|level| shade(colour, shade_factor(level, levels.len())).1).collect();
         for chain in &drawing.cuts {
-            if chain.len() < 2 {
+            if chain.points.len() < 2 {
                 continue;
             }
-            content.push_str(&format!("{} RG 1.1 w 1 J 1 j ", rgb(colour)));
-            for (position, (x, y)) in chain.iter().enumerate() {
+            content.push_str(&format!("{} RG 1.1 w 1 J 1 j ", rgb(shades[level_index(&levels, chain.z)])));
+            for (position, (x, y)) in chain.points.iter().enumerate() {
                 let operator = if position == 0 { "m" } else { "l" };
                 content.push_str(&format!("{:.2} {:.2} {operator} ", map_x(*x), map_y(*y)));
             }
@@ -409,18 +418,18 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
         match entry.style {
             Style::Solid => content.push_str(&format!(
                 "{0} RG 0.9 w {1:.2} {row_y:.2} m {2:.2} {row_y:.2} l S\n",
-                legend_rgb(entry),
+                rgb(entry.colour.rgb),
                 PDF_MARGIN,
                 PDF_MARGIN + 18.0
             )),
             Style::Dashed => content.push_str(&format!(
                 "{0} RG 0.6 w [3 2] 0 d {1:.2} {row_y:.2} m {2:.2} {row_y:.2} l S [] 0 d\n",
-                legend_rgb(entry),
+                rgb(entry.colour.rgb),
                 PDF_MARGIN,
                 PDF_MARGIN + 18.0
             )),
-            Style::Dot => push_pdf_circle(&mut content, PDF_MARGIN + 9.0, row_y, 2.0, legend_colour(entry), false),
-            Style::Ring => push_pdf_circle(&mut content, PDF_MARGIN + 9.0, row_y, 3.2, legend_colour(entry), true),
+            Style::Dot => push_pdf_circle(&mut content, PDF_MARGIN + 9.0, row_y, 2.0, entry.colour.rgb, false),
+            Style::Ring => push_pdf_circle(&mut content, PDF_MARGIN + 9.0, row_y, 3.2, entry.colour.rgb, true),
         }
         push_pdf_text(&mut content, PDF_MARGIN + 24.0, row_y - 2.0, 7.0, "0", &entry.label, &mut dropped);
         row_y -= PDF_LEGEND_ROW;
@@ -454,9 +463,838 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
     Drawing { text: pdf, dropped }
 }
 
+/// Renders the declared tools as an SVG table sheet.
+///
+/// One row per tool in document order: id, name, tool number, diameter,
+/// radius, flutes, spindle speed and the two feeds. An empty tool table still
+/// produces a valid sheet.
+pub fn tool_list_svg(document: &CamDocument, id: &str) -> Drawing {
+    let headers = ["id", "name", "T", "d mm", "r mm", "flutes", "rpm", "feed", "plunge"];
+    let widths = [16.0, 26.0, 6.0, 10.0, 10.0, 8.0, 12.0, 12.0, 12.0];
+    let table_width: f64 = widths.iter().sum();
+    let sheet_width = table_width.max(MIN_SHEET_WIDTH_MM);
+    let left = (sheet_width - table_width) / 2.0;
+    let top = 8.0;
+    let row = 5.0;
+    let rows: Vec<[String; 9]> = document
+        .tools
+        .iter()
+        .map(|tool| {
+            [
+                tool.id.clone(),
+                tool.name.clone(),
+                number(f64::from(tool.number)),
+                number(tool.diameter),
+                number(tool.radius()),
+                number(f64::from(tool.flutes)),
+                number(tool.spindle),
+                number(tool.feed),
+                number(tool.plunge_feed),
+            ]
+        })
+        .collect();
+    let sheet_height = top + row * (rows.len() as f64 + 2.0) + 4.0 + TITLE_HEIGHT_MM;
+
+    let mut svg = String::new();
+    svg.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    svg.push_str(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 {0} {1}\" width=\"{2}\" height=\"{3}\">\n",
+        number(sheet_width),
+        number(sheet_height),
+        number(sheet_width * PX_PER_MM),
+        number(sheet_height * PX_PER_MM)
+    ));
+    svg.push_str(&format!("  <title>OpenCAM tool list {}</title>\n", escape_xml(id)));
+    svg.push_str(&format!(
+        "  <rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"#ffffff\"/>\n",
+        number(sheet_width),
+        number(sheet_height)
+    ));
+    svg.push_str("  <g data-tool-table=\"true\">\n");
+    let column_x = |index: usize| left + widths[..index].iter().sum::<f64>();
+    let text = |svg: &mut String, x: f64, y: f64, fill: &str, value: &str| {
+        svg.push_str(&format!(
+            "    <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"2.2\" fill=\"{fill}\">{}</text>\n",
+            number(x),
+            number(y),
+            escape_xml(value)
+        ));
+    };
+    for (index, header) in headers.iter().enumerate() {
+        text(&mut svg, column_x(index) + 1.0, top + 3.2, INK, header);
+    }
+    svg.push_str(&format!(
+        "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"0.4\"/>\n",
+        number(left),
+        number(top + row),
+        number(left + table_width),
+        number(top + row)
+    ));
+    for (row_index, cells) in rows.iter().enumerate() {
+        let baseline = top + row * (row_index as f64 + 1.0) + 3.2;
+        for (index, cell) in cells.iter().enumerate() {
+            text(&mut svg, column_x(index) + 1.0, baseline, INK, cell);
+        }
+        svg.push_str(&format!(
+            "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{STOCK_COLOR}\" stroke-width=\"0.2\"/>\n",
+            number(left),
+            number(top + row * (row_index as f64 + 2.0)),
+            number(left + table_width),
+            number(top + row * (row_index as f64 + 2.0))
+        ));
+    }
+    if rows.is_empty() {
+        text(&mut svg, left + 1.0, top + row * 2.0 + 3.2, MUTED, "no tools declared");
+    }
+    svg.push_str("  </g>\n");
+    push_svg_block(
+        &mut svg,
+        document,
+        id,
+        "OpenCAM tool list drawing (SVG)",
+        &format!("{} tool(s)", document.tools.len()),
+        sheet_width,
+        sheet_height,
+    );
+    svg.push_str("</svg>\n");
+    Drawing { text: svg, dropped: 0 }
+}
+
+/// Renders the declared tools as a one-page A4 landscape PDF table.
+pub fn tool_list_pdf(document: &CamDocument, id: &str) -> Drawing {
+    let headers = ["id", "name", "T", "d mm", "r mm", "flutes", "rpm", "feed", "plunge"];
+    let widths = [45.0, 70.0, 30.0, 40.0, 40.0, 40.0, 50.0, 50.0, 50.0];
+    let table_width: f64 = widths.iter().sum();
+    let left = (PDF_PAGE_WIDTH - table_width) / 2.0;
+    let row = 12.0;
+    let top = PDF_PAGE_HEIGHT - PDF_MARGIN - 14.0;
+    let mut dropped = 0usize;
+    let mut content = String::new();
+    content.push_str(&format!("1 1 1 rg 0 0 {PDF_PAGE_WIDTH:.2} {PDF_PAGE_HEIGHT:.2} re f\n"));
+    let column_x = |index: usize| left + widths[..index].iter().sum::<f64>();
+    for (index, header) in headers.iter().enumerate() {
+        push_pdf_text(&mut content, column_x(index) + 3.0, top, 8.0, "0", header, &mut dropped);
+    }
+    content.push_str(&format!("0 0 0 RG 0.6 w {left:.2} {:.2} m {:.2} {:.2} l S\n", top - 4.0, left + table_width, top - 4.0));
+    for (row_index, tool) in document.tools.iter().enumerate() {
+        let baseline = top - row * (row_index as f64 + 1.0);
+        let cells = [
+            tool.id.clone(),
+            tool.name.clone(),
+            number(f64::from(tool.number)),
+            number(tool.diameter),
+            number(tool.radius()),
+            number(f64::from(tool.flutes)),
+            number(tool.spindle),
+            number(tool.feed),
+            number(tool.plunge_feed),
+        ];
+        for (index, cell) in cells.iter().enumerate() {
+            push_pdf_text(&mut content, column_x(index) + 3.0, baseline, 8.0, "0", cell, &mut dropped);
+        }
+        content.push_str(&format!(
+            "0.6 0.6 0.6 RG 0.4 w {left:.2} {:.2} m {:.2} {:.2} l S\n",
+            baseline - 4.0,
+            left + table_width,
+            baseline - 4.0
+        ));
+    }
+    if document.tools.is_empty() {
+        push_pdf_text(&mut content, left + 3.0, top - row, 8.0, "0.4", "no tools declared", &mut dropped);
+    }
+    let title_top = PDF_MARGIN + PDF_TITLE_BLOCK;
+    push_pdf_block(
+        &mut content,
+        document,
+        id,
+        "OpenCAM tool list drawing (PDF)",
+        &format!("{} tool(s)", document.tools.len()),
+        title_top,
+        &mut dropped,
+    );
+    finish_pdf_page(&content, dropped)
+}
+
+/// Renders the nominal operation geometry on the stock as an SVG setup sheet.
+pub fn stock_setup_svg(document: &CamDocument, id: &str) -> Drawing {
+    let frame = setup_frame(document);
+    let legend = setup_legend(document);
+    let legend_height = legend.len() as f64 * LEGEND_ROW_MM + LEGEND_GAP_MM;
+    let sheet_width = frame.width.max(MIN_SHEET_WIDTH_MM);
+    let sheet_height = frame.height + legend_height + TITLE_HEIGHT_MM;
+    let map_x = |x: f64| PAD_MM + (x - frame.min_x);
+    let map_y = |y: f64| PAD_MM + (frame.max_y - y);
+
+    let mut svg = String::new();
+    svg.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    svg.push_str(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 {0} {1}\" width=\"{2}\" height=\"{3}\">\n",
+        number(sheet_width),
+        number(sheet_height),
+        number(sheet_width * PX_PER_MM),
+        number(sheet_height * PX_PER_MM)
+    ));
+    svg.push_str(&format!("  <title>OpenCAM stock setup {}</title>\n", escape_xml(id)));
+    svg.push_str(&format!(
+        "  <rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"#ffffff\"/>\n",
+        number(sheet_width),
+        number(sheet_height)
+    ));
+    svg.push_str("  <g data-stock=\"true\">\n");
+    svg.push_str(&format!(
+        "    <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{STOCK_COLOR}\" stroke-width=\"0.35\"/>\n",
+        number(map_x(0.0)),
+        number(map_y(document.stock.depth)),
+        number(document.stock.width),
+        number(document.stock.depth)
+    ));
+    svg.push_str("  </g>\n");
+    for (index, operation) in document.operations.iter().enumerate() {
+        let (hex, _) = palette(index);
+        svg.push_str(&format!("  <g data-operation=\"{}\" data-index=\"{index}\">\n", escape_xml(&operation.id)));
+        match operation.kind {
+            OperationKind::Face => svg.push_str(&format!(
+                "    <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"0.35\" stroke-dasharray=\"1.5 1\"/>\n",
+                number(map_x(0.0)),
+                number(map_y(document.stock.depth)),
+                number(document.stock.width),
+                number(document.stock.depth)
+            )),
+            OperationKind::Contour | OperationKind::Pocket => {
+                if operation.shape.as_deref() == Some("circle") {
+                    svg.push_str(&format!(
+                        "    <circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{PATH_WIDTH_MM}\"/>\n",
+                        number(map_x(operation.x + operation.width / 2.0)),
+                        number(map_y(operation.y + operation.height / 2.0)),
+                        number(operation.width / 2.0)
+                    ));
+                }
+                else {
+                    svg.push_str(&format!(
+                        "    <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{PATH_WIDTH_MM}\"/>\n",
+                        number(map_x(operation.x)),
+                        number(map_y(operation.y + operation.height)),
+                        number(operation.width),
+                        number(operation.height)
+                    ));
+                }
+                for island in &operation.islands {
+                    svg.push_str(&format!(
+                        "    <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{ISLAND_COLOR}\" stroke-width=\"{ISLAND_WIDTH_MM}\"/>\n",
+                        number(map_x(island.x)),
+                        number(map_y(island.y + island.height)),
+                        number(island.width),
+                        number(island.height)
+                    ));
+                }
+            }
+            OperationKind::Engrave => {
+                if operation.path.len() >= 2 {
+                    let mut points: Vec<String> =
+                        operation.path.iter().map(|point| format!("{},{}", number(map_x(point.x)), number(map_y(point.y)))).collect();
+                    if operation.closed && points.len() > 2 {
+                        let first = points[0].clone();
+                        points.push(first);
+                    }
+                    svg.push_str(&format!(
+                        "    <polyline points=\"{}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{PATH_WIDTH_MM}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n",
+                        points.join(" ")
+                    ));
+                }
+            }
+            OperationKind::Drill => {
+                let radius = document.tools.iter().find(|tool| tool.id == operation.tool).map(Tool::radius);
+                for hole in operation.resolved_holes() {
+                    if let Some(radius) = radius {
+                        svg.push_str(&format!(
+                            "    <circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{DRILL_RING_WIDTH_MM}\"/>\n",
+                            number(map_x(hole.x)),
+                            number(map_y(hole.y)),
+                            number(radius)
+                        ));
+                    }
+                    else {
+                        svg.push_str(&format!(
+                            "    <circle cx=\"{}\" cy=\"{}\" r=\"0.6\" fill=\"{hex}\"/>\n",
+                            number(map_x(hole.x)),
+                            number(map_y(hole.y))
+                        ));
+                    }
+                }
+            }
+        }
+        let (label_x, label_y) = match operation.kind {
+            OperationKind::Face => (0.0, document.stock.depth),
+            OperationKind::Contour | OperationKind::Pocket => (operation.x, operation.y + operation.height),
+            OperationKind::Engrave => {
+                (operation.path.first().map_or(0.0, |point| point.x), operation.path.first().map_or(0.0, |point| point.y))
+            }
+            OperationKind::Drill => {
+                let hole = operation.resolved_holes().into_iter().next().unwrap_or(crate::model::Hole { x: 0.0, y: 0.0 });
+                (hole.x, hole.y)
+            }
+        };
+        svg.push_str(&format!(
+            "    <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"2.4\" fill=\"{INK}\">#{index} {}</text>\n",
+            number(map_x(label_x) + 0.8),
+            number(map_y(label_y) + 3.0 + f64::from(index as u32) * 2.6),
+            escape_xml(&operation_name(operation.kind, &operation.id))
+        ));
+        svg.push_str("  </g>\n");
+    }
+    let legend_top = frame.height + LEGEND_GAP_MM;
+    svg.push_str("  <g data-legend=\"true\">\n");
+    for (row, entry) in legend.iter().enumerate() {
+        let baseline = legend_top + 3.0 + row as f64 * LEGEND_ROW_MM;
+        svg.push_str(&format!(
+            "    <line x1=\"2\" y1=\"{}\" x2=\"9\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.6\"/>\n",
+            number(baseline - 0.8),
+            number(baseline - 0.8),
+            entry.colour.hex
+        ));
+        svg.push_str(&format!(
+            "    <text x=\"10.5\" y=\"{}\" font-family=\"monospace\" font-size=\"2.4\" fill=\"{INK}\">{}</text>\n",
+            number(baseline),
+            escape_xml(&entry.label)
+        ));
+    }
+    svg.push_str("  </g>\n");
+    push_svg_block(
+        &mut svg,
+        document,
+        id,
+        "OpenCAM stock setup drawing (SVG)",
+        &format!("{} operation(s)", document.operations.len()),
+        sheet_width,
+        sheet_height,
+    );
+    svg.push_str("</svg>\n");
+    Drawing { text: svg, dropped: 0 }
+}
+
+/// Renders the nominal operation geometry on the stock as one PDF page.
+pub fn stock_setup_pdf(document: &CamDocument, id: &str) -> Drawing {
+    let frame = setup_frame(document);
+    let legend = setup_legend(document);
+    let legend_height = legend.len() as f64 * PDF_LEGEND_ROW + 8.0;
+    let title_top = PDF_MARGIN + PDF_TITLE_BLOCK;
+    let legend_top = title_top + legend_height;
+    let area_width = PDF_PAGE_WIDTH - 2.0 * PDF_MARGIN;
+    let area_height = PDF_PAGE_HEIGHT - PDF_MARGIN - legend_top;
+    let scale = (area_width / frame.width).min(area_height / frame.height).max(0.01);
+    let offset_x = PDF_MARGIN + (area_width - frame.width * scale) / 2.0;
+    let offset_y = legend_top + (area_height - frame.height * scale) / 2.0;
+    let map_x = |x: f64| offset_x + (x - frame.min_x) * scale;
+    let map_y = |y: f64| offset_y + (frame.max_y - y) * scale;
+
+    let mut dropped = 0usize;
+    let mut content = String::new();
+    content.push_str(&format!("1 1 1 rg 0 0 {PDF_PAGE_WIDTH:.2} {PDF_PAGE_HEIGHT:.2} re f\n"));
+    content.push_str(&format!(
+        "{} RG 0.6 w [2 2] 0 d {:.2} {:.2} {:.2} {:.2} re S [] 0 d\n",
+        rgb(STOCK_RGB),
+        map_x(0.0),
+        map_y(document.stock.depth),
+        document.stock.width * scale,
+        document.stock.depth * scale
+    ));
+    for (index, operation) in document.operations.iter().enumerate() {
+        let colour = palette(index).1;
+        match operation.kind {
+            OperationKind::Face => content.push_str(&format!(
+                "{} RG 0.6 w [2 2] 0 d {:.2} {:.2} {:.2} {:.2} re S [] 0 d\n",
+                rgb(colour),
+                map_x(0.0),
+                map_y(document.stock.depth),
+                document.stock.width * scale,
+                document.stock.depth * scale
+            )),
+            OperationKind::Contour | OperationKind::Pocket => {
+                if operation.shape.as_deref() == Some("circle") {
+                    push_pdf_circle(
+                        &mut content,
+                        map_x(operation.x + operation.width / 2.0),
+                        map_y(operation.y + operation.height / 2.0),
+                        operation.width / 2.0 * scale,
+                        colour,
+                        true,
+                    );
+                }
+                else {
+                    push_pdf_rect(
+                        &mut content,
+                        map_x(operation.x),
+                        map_y(operation.y + operation.height),
+                        operation.width * scale,
+                        operation.height * scale,
+                        colour,
+                    );
+                }
+                for island in &operation.islands {
+                    push_pdf_rect(
+                        &mut content,
+                        map_x(island.x),
+                        map_y(island.y + island.height),
+                        island.width * scale,
+                        island.height * scale,
+                        ISLAND_RGB,
+                    );
+                }
+            }
+            OperationKind::Engrave => {
+                if operation.path.len() >= 2 {
+                    content.push_str(&format!("{} RG 1.1 w 1 J 1 j ", rgb(colour)));
+                    for (position, point) in operation.path.iter().enumerate() {
+                        let operator = if position == 0 { "m" } else { "l" };
+                        content.push_str(&format!("{:.2} {:.2} {operator} ", map_x(point.x), map_y(point.y)));
+                    }
+                    if operation.closed {
+                        content.push_str("h ");
+                    }
+                    content.push_str("S\n");
+                }
+            }
+            OperationKind::Drill => {
+                let radius = document.tools.iter().find(|tool| tool.id == operation.tool).map(Tool::radius);
+                for hole in operation.resolved_holes() {
+                    push_pdf_circle(
+                        &mut content,
+                        map_x(hole.x),
+                        map_y(hole.y),
+                        radius.map_or(1.5, |r| r * scale),
+                        colour,
+                        radius.is_some(),
+                    );
+                }
+            }
+        }
+        push_pdf_text(
+            &mut content,
+            map_x(operation.x) + 2.0,
+            map_y(operation.y + operation.height) - 2.0,
+            7.0,
+            "0",
+            &format!("#{} {}", index + 1, operation_name(operation.kind, &operation.id)),
+            &mut dropped,
+        );
+    }
+    let mut row_y = legend_top - 7.0;
+    for entry in &legend {
+        content.push_str(&format!(
+            "{0} RG 0.9 w {1:.2} {row_y:.2} m {2:.2} {row_y:.2} l S\n",
+            rgb(entry.colour.rgb),
+            PDF_MARGIN,
+            PDF_MARGIN + 18.0
+        ));
+        push_pdf_text(&mut content, PDF_MARGIN + 24.0, row_y - 2.0, 7.0, "0", &entry.label, &mut dropped);
+        row_y -= PDF_LEGEND_ROW;
+    }
+    push_pdf_block(
+        &mut content,
+        document,
+        id,
+        "OpenCAM stock setup drawing (PDF)",
+        &format!("{} operation(s)", document.operations.len()),
+        title_top,
+        &mut dropped,
+    );
+    finish_pdf_page(&content, dropped)
+}
+
+/// Renders every cutting chain coloured by its Z level as an SVG depth map.
+pub fn depth_map_svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
+    let drawings = project_all(document, report);
+    let frame = frame(document, &drawings);
+    let legend = operation_rows(document, report, &drawings);
+    let legend_height = legend.len() as f64 * LEGEND_ROW_MM + LEGEND_GAP_MM;
+    let sheet_width = frame.width.max(MIN_SHEET_WIDTH_MM);
+    let sheet_height = frame.height + legend_height + TITLE_HEIGHT_MM;
+    let map_x = |x: f64| PAD_MM + (x - frame.min_x);
+    let map_y = |y: f64| PAD_MM + (frame.max_y - y);
+
+    let mut svg = String::new();
+    svg.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    svg.push_str(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 {0} {1}\" width=\"{2}\" height=\"{3}\">\n",
+        number(sheet_width),
+        number(sheet_height),
+        number(sheet_width * PX_PER_MM),
+        number(sheet_height * PX_PER_MM)
+    ));
+    svg.push_str(&format!("  <title>OpenCAM depth map {}</title>\n", escape_xml(id)));
+    svg.push_str(&format!(
+        "  <rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"#ffffff\"/>\n",
+        number(sheet_width),
+        number(sheet_height)
+    ));
+    svg.push_str("  <g data-stock=\"true\">\n");
+    svg.push_str(&format!(
+        "    <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{STOCK_COLOR}\" stroke-width=\"0.35\"/>\n",
+        number(map_x(0.0)),
+        number(map_y(document.stock.depth)),
+        number(document.stock.width),
+        number(document.stock.depth)
+    ));
+    svg.push_str("  </g>\n");
+    let mut annotations = 0usize;
+    for (index, drawing) in drawings.iter().enumerate() {
+        let levels = chain_levels(drawing);
+        svg.push_str(&format!("  <g data-depth-map=\"true\" data-index=\"{index}\">\n"));
+        for (level, z) in levels.iter().enumerate() {
+            let (hex, _) = shade(palette(index).1, shade_factor(level, levels.len()));
+            for chain in drawing.cuts.iter().filter(|chain| level_index(&levels, chain.z) == level) {
+                if chain.points.len() < 2 {
+                    continue;
+                }
+                let points = chain
+                    .points
+                    .iter()
+                    .map(|point| format!("{},{}", number(map_x(point.0)), number(map_y(point.1))))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                svg.push_str(&format!(
+                    "    <polyline points=\"{points}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{PATH_WIDTH_MM}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n"
+                ));
+            }
+            if let Some(chain) = drawing.cuts.iter().find(|chain| level_index(&levels, chain.z) == level) {
+                let (x, y) = chain.points.first().copied().unwrap_or((0.0, 0.0));
+                svg.push_str(&format!(
+                    "    <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"2.2\" fill=\"{INK}\">Z{}</text>\n",
+                    number(map_x(x) + 0.8),
+                    number(map_y(y) + 2.0 + f64::from(annotations as u32) * 2.6),
+                    number(*z)
+                ));
+                annotations += 1;
+            }
+        }
+        svg.push_str("  </g>\n");
+    }
+    let legend_top = frame.height + LEGEND_GAP_MM;
+    svg.push_str("  <g data-legend=\"true\">\n");
+    for (row, entry) in legend.iter().enumerate() {
+        let baseline = legend_top + 3.0 + row as f64 * LEGEND_ROW_MM;
+        svg.push_str(&format!(
+            "    <line x1=\"2\" y1=\"{}\" x2=\"9\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.6\"/>\n",
+            number(baseline - 0.8),
+            number(baseline - 0.8),
+            entry.colour.hex
+        ));
+        svg.push_str(&format!(
+            "    <text x=\"10.5\" y=\"{}\" font-family=\"monospace\" font-size=\"2.4\" fill=\"{INK}\">{}</text>\n",
+            number(baseline),
+            escape_xml(&entry.label)
+        ));
+    }
+    svg.push_str("  </g>\n");
+    push_svg_block(
+        &mut svg,
+        document,
+        id,
+        "OpenCAM depth map drawing (SVG)",
+        &format!("{} operation(s)", report.operations.len()),
+        sheet_width,
+        sheet_height,
+    );
+    svg.push_str("</svg>\n");
+    Drawing { text: svg, dropped: 0 }
+}
+
+/// Renders the Z-level coloured cutting chains as one PDF page.
+pub fn depth_map_pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
+    let drawings = project_all(document, report);
+    let frame = frame(document, &drawings);
+    let legend = operation_rows(document, report, &drawings);
+    let legend_height = legend.len() as f64 * PDF_LEGEND_ROW + 8.0;
+    let title_top = PDF_MARGIN + PDF_TITLE_BLOCK;
+    let legend_top = title_top + legend_height;
+    let area_width = PDF_PAGE_WIDTH - 2.0 * PDF_MARGIN;
+    let area_height = PDF_PAGE_HEIGHT - PDF_MARGIN - legend_top;
+    let scale = (area_width / frame.width).min(area_height / frame.height).max(0.01);
+    let offset_x = PDF_MARGIN + (area_width - frame.width * scale) / 2.0;
+    let offset_y = legend_top + (area_height - frame.height * scale) / 2.0;
+    let map_x = |x: f64| offset_x + (x - frame.min_x) * scale;
+    let map_y = |y: f64| offset_y + (frame.max_y - y) * scale;
+
+    let mut dropped = 0usize;
+    let mut content = String::new();
+    content.push_str(&format!("1 1 1 rg 0 0 {PDF_PAGE_WIDTH:.2} {PDF_PAGE_HEIGHT:.2} re f\n"));
+    content.push_str(&format!(
+        "{} RG 0.6 w {:.2} {:.2} {:.2} {:.2} re S\n",
+        rgb(STOCK_RGB),
+        map_x(0.0),
+        map_y(document.stock.depth),
+        document.stock.width * scale,
+        document.stock.depth * scale
+    ));
+    for (index, drawing) in drawings.iter().enumerate() {
+        let levels = chain_levels(drawing);
+        for (level, z) in levels.iter().enumerate() {
+            let colour = shade(palette(index).1, shade_factor(level, levels.len())).1;
+            for chain in drawing.cuts.iter().filter(|chain| level_index(&levels, chain.z) == level) {
+                if chain.points.len() < 2 {
+                    continue;
+                }
+                content.push_str(&format!("{} RG 1.1 w 1 J 1 j ", rgb(colour)));
+                for (position, (x, y)) in chain.points.iter().enumerate() {
+                    let operator = if position == 0 { "m" } else { "l" };
+                    content.push_str(&format!("{:.2} {:.2} {operator} ", map_x(*x), map_y(*y)));
+                }
+                content.push_str("S\n");
+            }
+            if let Some(chain) = drawing.cuts.iter().find(|chain| level_index(&levels, chain.z) == level) {
+                let (x, y) = chain.points.first().copied().unwrap_or((0.0, 0.0));
+                push_pdf_text(
+                    &mut content,
+                    map_x(x) + 2.0,
+                    map_y(y) + 2.0,
+                    6.5,
+                    "0",
+                    &format!("Z{}", number(*z)),
+                    &mut dropped,
+                );
+            }
+        }
+    }
+    let mut row_y = legend_top - 7.0;
+    for entry in &legend {
+        content.push_str(&format!(
+            "{0} RG 0.9 w {1:.2} {row_y:.2} m {2:.2} {row_y:.2} l S\n",
+            rgb(entry.colour.rgb),
+            PDF_MARGIN,
+            PDF_MARGIN + 18.0
+        ));
+        push_pdf_text(&mut content, PDF_MARGIN + 24.0, row_y - 2.0, 7.0, "0", &entry.label, &mut dropped);
+        row_y -= PDF_LEGEND_ROW;
+    }
+    push_pdf_block(
+        &mut content,
+        document,
+        id,
+        "OpenCAM depth map drawing (PDF)",
+        &format!("{} operation(s)", report.operations.len()),
+        title_top,
+        &mut dropped,
+    );
+    finish_pdf_page(&content, dropped)
+}
+
+/// Shared PDF page assembly of the non-toolpath sheets.
+fn finish_pdf_page(content: &str, dropped: usize) -> Drawing {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PDF_PAGE_WIDTH:.0} {PDF_PAGE_HEIGHT:.0}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+    ];
+    let mut pdf = String::from("%PDF-1.4\n");
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.push_str(&format!("{} 0 obj\n{object}\nendobj\n", index + 1));
+    }
+    let xref = pdf.len();
+    pdf.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+    pdf.push_str("0000000000 65535 f \n");
+    for offset in offsets {
+        pdf.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    pdf.push_str(&format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1));
+    Drawing { text: pdf, dropped }
+}
+
+fn push_pdf_rect(content: &mut String, x: f64, y: f64, width: f64, height: f64, colour: [u8; 3]) {
+    content.push_str(&format!(
+        "{} RG 1 w {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l {:.2} {:.2} l h S\n",
+        rgb(colour),
+        x,
+        y,
+        x + width,
+        y,
+        x + width,
+        y + height,
+        x,
+        y + height
+    ));
+}
+
+/// Shared title block of the non-toolpath SVG sheets.
+fn push_svg_block(
+    svg: &mut String,
+    document: &CamDocument,
+    id: &str,
+    subtitle: &str,
+    note: &str,
+    sheet_width: f64,
+    sheet_height: f64,
+) {
+    let top = sheet_height - TITLE_HEIGHT_MM;
+    svg.push_str("  <g data-title-block=\"true\">\n");
+    svg.push_str(&format!(
+        "    <line x1=\"0\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"0.4\"/>\n",
+        number(top),
+        number(sheet_width),
+        number(top)
+    ));
+    for fraction in [0.45, 0.75] {
+        let cursor = sheet_width * fraction;
+        svg.push_str(&format!(
+            "    <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"0.4\"/>\n",
+            number(cursor),
+            number(top),
+            number(cursor),
+            number(sheet_height)
+        ));
+    }
+    let cell = |svg: &mut String, x: f64, y: f64, size: f64, fill: &str, text: &str| {
+        svg.push_str(&format!(
+            "    <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"{}\" fill=\"{fill}\">{}</text>\n",
+            number(x),
+            number(y),
+            number(size),
+            escape_xml(text)
+        ));
+    };
+    cell(svg, 1.5, top + 6.0, 3.4, INK, id);
+    cell(svg, 1.5, top + 11.5, 2.2, MUTED, subtitle);
+    let mid = sheet_width * 0.45 + 1.5;
+    cell(svg, mid, top + 6.0, 2.6, INK, &format!("units: {}", document.units));
+    cell(svg, mid, top + 11.5, 2.2, MUTED, &format!("REV {}", document.revision));
+    let right = sheet_width * 0.75 + 1.5;
+    cell(svg, right, top + 6.0, 2.4, INK, note);
+    cell(
+        svg,
+        right,
+        top + 11.5,
+        2.2,
+        MUTED,
+        &format!("stock {} x {} mm", number(document.stock.width), number(document.stock.depth)),
+    );
+    svg.push_str("  </g>\n");
+}
+
+/// Shared title block of the non-toolpath PDF sheets.
+fn push_pdf_block(
+    content: &mut String,
+    document: &CamDocument,
+    id: &str,
+    subtitle: &str,
+    note: &str,
+    title_top: f64,
+    dropped: &mut usize,
+) {
+    let left = PDF_MARGIN;
+    let right = PDF_PAGE_WIDTH - PDF_MARGIN;
+    content.push_str(&format!("0 0 0 RG 0.6 w {left:.2} {title_top:.2} m {right:.2} {title_top:.2} l S\n"));
+    for fraction in [0.45, 0.75] {
+        let cursor = left + (right - left) * fraction;
+        content.push_str(&format!("{cursor:.2} {PDF_MARGIN:.2} m {cursor:.2} {title_top:.2} l S\n"));
+    }
+    push_pdf_text(content, left + 3.0, title_top - 14.0, 9.0, "0", id, dropped);
+    push_pdf_text(content, left + 3.0, title_top - 26.0, 6.5, "0.4", subtitle, dropped);
+    let mid = left + (right - left) * 0.45 + 3.0;
+    push_pdf_text(content, mid, title_top - 14.0, 7.0, "0", &format!("units: {}", document.units), dropped);
+    push_pdf_text(content, mid, title_top - 26.0, 6.5, "0.4", &format!("REV {}", document.revision), dropped);
+    let right_x = left + (right - left) * 0.75 + 3.0;
+    push_pdf_text(content, right_x, title_top - 14.0, 6.5, "0.4", note, dropped);
+    push_pdf_text(
+        content,
+        right_x,
+        title_top - 26.0,
+        6.5,
+        "0.4",
+        &format!("stock {} x {} mm", number(document.stock.width), number(document.stock.depth)),
+        dropped,
+    );
+}
+
+/// Bounding frame of the stock and every nominal operation geometry.
+fn setup_frame(document: &CamDocument) -> Frame {
+    let mut min_x = 0.0_f64;
+    let mut max_x = document.stock.width.max(1.0);
+    let mut min_y = 0.0_f64;
+    let mut max_y = document.stock.depth.max(1.0);
+    let mut include = |x: f64, y: f64| {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    };
+    for operation in &document.operations {
+        match operation.kind {
+            OperationKind::Face => {}
+            OperationKind::Contour | OperationKind::Pocket => {
+                include(operation.x, operation.y);
+                include(operation.x + operation.width, operation.y + operation.height);
+                for island in &operation.islands {
+                    include(island.x, island.y);
+                    include(island.x + island.width, island.y + island.height);
+                }
+            }
+            OperationKind::Engrave => {
+                for point in &operation.path {
+                    include(point.x, point.y);
+                }
+            }
+            OperationKind::Drill => {
+                let radius = document.tools.iter().find(|tool| tool.id == operation.tool).map_or(0.0, Tool::radius);
+                for hole in operation.resolved_holes() {
+                    include(hole.x - radius, hole.y - radius);
+                    include(hole.x + radius, hole.y + radius);
+                }
+            }
+        }
+    }
+    Frame {
+        min_x,
+        min_y,
+        max_y,
+        width: (max_x - min_x).max(1.0) + 2.0 * PAD_MM,
+        height: (max_y - min_y).max(1.0) + 2.0 * PAD_MM,
+    }
+}
+
+/// One legend row per operation of the setup sheet.
+fn setup_legend(document: &CamDocument) -> Vec<LegendRow> {
+    document
+        .operations
+        .iter()
+        .enumerate()
+        .map(|(index, operation)| {
+            let detail = match document.tools.iter().find(|tool| tool.id == operation.tool) {
+                Some(tool) => format!("tool {} d{}", tool.id, number(tool.diameter)),
+                None => format!("tool {}", operation.tool),
+            };
+            LegendRow {
+                colour: fixed_colour(palette(index).0, palette(index).1),
+                style: Style::Solid,
+                label: format!(
+                    "#{} {}  depth {} mm  {detail}",
+                    index + 1,
+                    operation_name(operation.kind, &operation.id),
+                    number(operation.depth)
+                ),
+            }
+        })
+        .collect()
+}
+
+/// `kind id`, printed once when a default id already names the kind.
+fn operation_name(kind: OperationKind, id: &str) -> String {
+    if kind.as_str() == id { id.to_string() } else { format!("{} {}", kind.as_str(), id) }
+}
+
+/// One continuous cutting chain and the Z height it was cut at.
+struct CutChain {
+    z: f64,
+    points: Vec<(f64, f64)>,
+}
+
 /// Projected primitives of one operation, in millimetres.
 struct OpDrawing {
-    cuts: Vec<Vec<(f64, f64)>>,
+    cuts: Vec<CutChain>,
     rapids: Vec<((f64, f64), (f64, f64))>,
     tabs: Vec<((f64, f64), (f64, f64))>,
     plunges: Vec<(f64, f64)>,
@@ -473,7 +1311,9 @@ fn drill_radius(document: &CamDocument, operation: &OperationPath) -> Option<f64
     document.tools.iter().find(|tool| tool.id == operation.tool).map(|tool| tool.radius())
 }
 
-fn project(operation: &OperationPath, hole_radius: Option<f64>, safe_z: f64) -> OpDrawing {
+/// Projects one operation. `previous` is the XY the machine actually starts
+/// from: the end of the previous operation, or `None` for the first one.
+fn project(operation: &OperationPath, hole_radius: Option<f64>, safe_z: f64, previous: Option<(f64, f64)>) -> OpDrawing {
     let mut drawing = OpDrawing {
         cuts: Vec::new(),
         rapids: Vec::new(),
@@ -484,39 +1324,55 @@ fn project(operation: &OperationPath, hole_radius: Option<f64>, safe_z: f64) -> 
         start: None,
     };
     let mut chain: Vec<(f64, f64)> = Vec::new();
+    let mut chain_z: Option<f64> = None;
     let mut lifted: Vec<((f64, f64), (f64, f64))> = Vec::new();
+    let mut seen_plunges: HashSet<[i64; 2]> = HashSet::new();
+    let mut first_rapid = true;
     for movement in &operation.segments {
         match movement.kind {
             MoveKind::Rapid => {
-                flush(&mut chain, &mut drawing.cuts);
-                if (movement.from.x - movement.to.x).abs() > 1e-9 || (movement.from.y - movement.to.y).abs() > 1e-9 {
+                // The report starts every operation at the origin; the sheet
+                // draws the traverse from where the previous operation ended.
+                let from = if first_rapid {
+                    previous.unwrap_or((movement.from.x, movement.from.y))
+                }
+                else {
+                    (movement.from.x, movement.from.y)
+                };
+                first_rapid = false;
+                flush(&mut chain, &mut chain_z, &mut drawing.cuts);
+                if (from.0 - movement.to.x).abs() > 1e-9 || (from.1 - movement.to.y).abs() > 1e-9 {
                     // A horizontal rapid below the clearance plane crosses a holding tab.
                     if (movement.from.z - movement.to.z).abs() <= 1e-9 && movement.from.z < safe_z - 1e-9 {
-                        lifted.push(((movement.from.x, movement.from.y), (movement.to.x, movement.to.y)));
+                        lifted.push((from, (movement.to.x, movement.to.y)));
                     }
                     else {
-                        drawing.rapids.push(((movement.from.x, movement.from.y), (movement.to.x, movement.to.y)));
+                        drawing.rapids.push((from, (movement.to.x, movement.to.y)));
                     }
                 }
             }
             MoveKind::Plunge => {
-                flush(&mut chain, &mut drawing.cuts);
+                flush(&mut chain, &mut chain_z, &mut drawing.cuts);
                 if hole_radius.is_some() {
                     drawing.holes.push((movement.from.x, movement.from.y));
                 }
-                else {
+                else if seen_plunges
+                    .insert([(movement.from.x * 1000.0).round() as i64, (movement.from.y * 1000.0).round() as i64])
+                {
                     drawing.plunges.push((movement.from.x, movement.from.y));
                 }
             }
             MoveKind::Cut => {
                 if chain.is_empty() {
                     chain.push((movement.from.x, movement.from.y));
+                    chain_z = Some(movement.to.z);
                 }
                 chain.push((movement.to.x, movement.to.y));
             }
             MoveKind::Arc => {
                 if chain.is_empty() {
                     chain.push((movement.from.x, movement.from.y));
+                    chain_z = Some(movement.to.z);
                 }
                 append_arc(&mut chain, movement);
             }
@@ -525,7 +1381,7 @@ fn project(operation: &OperationPath, hole_radius: Option<f64>, safe_z: f64) -> 
             drawing.start = Some((movement.from.x, movement.from.y));
         }
     }
-    flush(&mut chain, &mut drawing.cuts);
+    flush(&mut chain, &mut chain_z, &mut drawing.cuts);
     // Chain consecutive lifted chords into one marker per tab, then drop the
     // repeats the remaining Z levels produce at the same XY interval.
     let mut merged: Vec<((f64, f64), (f64, f64))> = Vec::new();
@@ -553,12 +1409,13 @@ fn project(operation: &OperationPath, hole_radius: Option<f64>, safe_z: f64) -> 
     drawing
 }
 
-fn flush(chain: &mut Vec<(f64, f64)>, cuts: &mut Vec<Vec<(f64, f64)>>) {
+fn flush(chain: &mut Vec<(f64, f64)>, chain_z: &mut Option<f64>, cuts: &mut Vec<CutChain>) {
     if chain.len() > 1 {
-        cuts.push(std::mem::take(chain));
+        cuts.push(CutChain { z: chain_z.take().unwrap_or(0.0), points: std::mem::take(chain) });
     }
     else {
         chain.clear();
+        *chain_z = None;
     }
 }
 
@@ -619,7 +1476,7 @@ fn frame(document: &CamDocument, drawings: &[OpDrawing]) -> Frame {
         max_y = max_y.max(y);
     };
     for drawing in drawings {
-        for point in drawing.cuts.iter().flatten() {
+        for point in drawing.cuts.iter().flat_map(|chain| chain.points.iter()) {
             include(point.0, point.1);
         }
         for point in drawing.holes.iter().chain(drawing.plunges.iter()) {
@@ -653,13 +1510,11 @@ enum Style {
     Ring,
 }
 
-#[derive(Clone, Copy)]
-enum RowColour {
-    Palette(usize),
-    Ink,
-    Rapid,
-    Island,
-    Tab,
+/// A resolved row colour, so shaded per-level colours can appear in a legend.
+#[derive(Clone)]
+struct RowColour {
+    hex: String,
+    rgb: [u8; 3],
 }
 
 struct LegendRow {
@@ -668,67 +1523,120 @@ struct LegendRow {
     label: String,
 }
 
+fn fixed_colour(hex: &str, rgb: [u8; 3]) -> RowColour {
+    RowColour { hex: hex.to_string(), rgb }
+}
+
 fn legend(document: &CamDocument, report: &ToolpathReport, drawings: &[OpDrawing]) -> Vec<LegendRow> {
     let mut rows = vec![
-        LegendRow { colour: RowColour::Ink, style: Style::Solid, label: "cutting move (G1/G2/G3)".to_string() },
-        LegendRow { colour: RowColour::Rapid, style: Style::Dashed, label: "rapid move (G0)".to_string() },
-        LegendRow { colour: RowColour::Ink, style: Style::Dot, label: "plunge / start point".to_string() },
-        LegendRow { colour: RowColour::Ink, style: Style::Ring, label: "drill hole (tool diameter)".to_string() },
+        LegendRow { colour: fixed_colour(INK, INK_RGB), style: Style::Solid, label: "cutting move (G1/G2/G3)".to_string() },
+        LegendRow { colour: fixed_colour(STOCK_COLOR, STOCK_RGB), style: Style::Dashed, label: "rapid move (G0)".to_string() },
+        LegendRow { colour: fixed_colour(INK, INK_RGB), style: Style::Dot, label: "plunge / start point".to_string() },
+        LegendRow { colour: fixed_colour(INK, INK_RGB), style: Style::Ring, label: "drill hole (tool diameter)".to_string() },
     ];
     if document.operations.iter().any(|operation| operation.kind == OperationKind::Pocket && !operation.islands.is_empty()) {
         rows.push(LegendRow {
-            colour: RowColour::Island,
+            colour: fixed_colour(ISLAND_COLOR, ISLAND_RGB),
             style: Style::Solid,
             label: "pocket island (nominal outline)".to_string(),
         });
     }
     if drawings.iter().any(|drawing| !drawing.tabs.is_empty()) {
         rows.push(LegendRow {
-            colour: RowColour::Tab,
+            colour: fixed_colour(TAB_COLOR, TAB_RGB),
             style: Style::Solid,
             label: "holding tab (lifted traverse)".to_string(),
         });
     }
+    rows.extend(operation_rows(document, report, drawings));
+    rows
+}
+
+/// One legend row per operation, or one shaded row per Z level when an
+/// operation cuts at several depths.
+fn operation_rows(document: &CamDocument, report: &ToolpathReport, drawings: &[OpDrawing]) -> Vec<LegendRow> {
+    let mut rows = Vec::new();
     for (index, operation) in report.operations.iter().enumerate() {
         let detail = match document.tools.iter().find(|tool| tool.id == operation.tool) {
             Some(tool) => format!("tool {} d{} r{}", tool.id, number(tool.diameter), number(tool.radius())),
             None => format!("tool {}", operation.tool),
         };
-        rows.push(LegendRow {
-            colour: RowColour::Palette(index),
-            style: Style::Solid,
-            label: format!("#{} {} {}  {detail}", index + 1, operation.kind.as_str(), operation.operation),
-        });
+        // A default operation id repeats the kind, so "face face" prints once.
+        let name = operation_name(operation.kind, &operation.operation);
+        let levels = chain_levels(&drawings[index]);
+        if levels.len() <= 1 {
+            let (hex, rgb) = palette(index);
+            rows.push(LegendRow {
+                colour: fixed_colour(hex, rgb),
+                style: Style::Solid,
+                label: format!("#{} {}  {detail}", index + 1, name),
+            });
+        }
+        else {
+            for (level, z) in levels.iter().enumerate() {
+                let (hex, rgb) = shade(palette(index).1, shade_factor(level, levels.len()));
+                rows.push(LegendRow {
+                    colour: RowColour { hex, rgb },
+                    style: Style::Solid,
+                    label: format!(
+                        "#{} {}  Z{} depth {} mm  {detail}",
+                        index + 1,
+                        name,
+                        number(*z),
+                        number(document.stock.height - z),
+                    ),
+                });
+            }
+        }
     }
     rows
 }
 
-fn legend_hex(entry: &LegendRow) -> &'static str {
-    match entry.colour {
-        RowColour::Palette(index) => palette(index).0,
-        RowColour::Ink => INK,
-        RowColour::Rapid => STOCK_COLOR,
-        RowColour::Island => ISLAND_COLOR,
-        RowColour::Tab => TAB_COLOR,
-    }
-}
-
-fn legend_rgb(entry: &LegendRow) -> String {
-    rgb(legend_colour(entry))
-}
-
-fn legend_colour(entry: &LegendRow) -> [u8; 3] {
-    match entry.colour {
-        RowColour::Palette(index) => palette(index).1,
-        RowColour::Ink => INK_RGB,
-        RowColour::Rapid => STOCK_RGB,
-        RowColour::Island => ISLAND_RGB,
-        RowColour::Tab => TAB_RGB,
-    }
-}
-
 fn palette(index: usize) -> (&'static str, [u8; 3]) {
     PALETTE[index % PALETTE.len()]
+}
+
+/// Projects every operation, threading the end of one operation into the
+/// first rapid of the next so the sheet shows the real traverse between them.
+fn project_all(document: &CamDocument, report: &ToolpathReport) -> Vec<OpDrawing> {
+    let mut drawings = Vec::with_capacity(report.operations.len());
+    let mut previous: Option<(f64, f64)> = None;
+    for operation in &report.operations {
+        drawings.push(project(operation, drill_radius(document, operation), report.safe_z, previous));
+        previous = operation.segments.last().map(|movement| (movement.to.x, movement.to.y)).or(previous);
+    }
+    drawings
+}
+
+/// Distinct chain Z levels of one operation, in cutting order.
+fn chain_levels(drawing: &OpDrawing) -> Vec<f64> {
+    let mut levels: Vec<f64> = Vec::new();
+    for chain in &drawing.cuts {
+        let key = (chain.z * 1000.0).round();
+        if !levels.iter().any(|level| (level * 1000.0).round() == key) {
+            levels.push(chain.z);
+        }
+    }
+    levels
+}
+
+fn level_index(levels: &[f64], z: f64) -> usize {
+    let key = (z * 1000.0).round();
+    levels.iter().position(|level| (level * 1000.0).round() == key).unwrap_or(0)
+}
+
+/// The first level keeps the full colour and the deepest fades to 35 %.
+fn shade_factor(level: usize, count: usize) -> f64 {
+    if count <= 1 { 1.0 } else { 1.0 - 0.65 * (f64::from(level as u32) / f64::from(count as u32 - 1)) }
+}
+
+fn shade(colour: [u8; 3], factor: f64) -> (String, [u8; 3]) {
+    let rgb = [
+        (f64::from(colour[0]) * factor).round() as u8,
+        (f64::from(colour[1]) * factor).round() as u8,
+        (f64::from(colour[2]) * factor).round() as u8,
+    ];
+    (format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]), rgb)
 }
 
 fn push_svg_title_block(

@@ -115,6 +115,48 @@ impl FromStr for ExportFormat {
     }
 }
 
+/// Kind of vector sheet rendered by [`OpenCam::drawing`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawingKind {
+    /// Toolpath moves over the stock.
+    Toolpath,
+    /// Table of the declared tools.
+    ToolList,
+    /// Stock with the nominal operation outlines.
+    StockSetup,
+    /// Cutting chains coloured by Z level.
+    DepthMap,
+}
+
+impl DrawingKind {
+    /// Returns the short identifier used by the CLI and by reports.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Toolpath => "toolpath",
+            Self::ToolList => "tool-list",
+            Self::StockSetup => "stock-setup",
+            Self::DepthMap => "depth-map",
+        }
+    }
+}
+
+impl FromStr for DrawingKind {
+    type Err = CamError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "toolpath" => Ok(Self::Toolpath),
+            "tool-list" => Ok(Self::ToolList),
+            "stock-setup" => Ok(Self::StockSetup),
+            "depth-map" => Ok(Self::DepthMap),
+            other => Err(CamError::new(
+                "cli/unknown-kind",
+                format!("unknown drawing kind `{other}`; only toolpath, tool-list, stock-setup or depth-map is supported"),
+            )),
+        }
+    }
+}
+
 /// Report returned by [`OpenCam::export`].
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +180,8 @@ pub struct ExportReport {
 pub struct DrawingReport {
     /// Drawing format, `svg` or `pdf`.
     pub format: String,
+    /// Drawing kind, `toolpath`, `tool-list`, `stock-setup` or `depth-map`.
+    pub kind: String,
     /// Rendered sheet text, ready to write unchanged.
     pub text: String,
     /// Non-ASCII characters replaced by `?`; `0` for SVG.
@@ -609,8 +653,9 @@ impl OpenCam {
     ///
     /// Only the drawing formats [`ExportFormat::Svg`] and [`ExportFormat::Pdf`]
     /// are accepted; the text is returned unchanged so the CLI can send it to
-    /// `--out` or stdout.
-    pub fn drawing(&self, format: ExportFormat) -> Result<DrawingReport, CamError> {
+    /// `--out` or stdout. `kind` selects the sheet: toolpath moves, the tool
+    /// table, the nominal stock setup or the Z-level depth map.
+    pub fn drawing(&self, kind: DrawingKind, format: ExportFormat) -> Result<DrawingReport, CamError> {
         if !format.is_drawing() {
             return Err(CamError::new(
                 "export/not-drawing",
@@ -618,13 +663,25 @@ impl OpenCam {
             ));
         }
         let document = self.document()?;
-        let report = toolpath::generate(document)?;
         let id = self.id();
-        let drawing = match format {
-            ExportFormat::Pdf => crate::drawing::pdf(document, &report, &id),
-            _ => crate::drawing::svg(document, &report, &id),
+        let drawing = match (kind, format) {
+            (DrawingKind::Toolpath, ExportFormat::Pdf) => crate::drawing::pdf(document, &toolpath::generate(document)?, &id),
+            (DrawingKind::Toolpath, _) => crate::drawing::svg(document, &toolpath::generate(document)?, &id),
+            (DrawingKind::ToolList, ExportFormat::Pdf) => crate::drawing::tool_list_pdf(document, &id),
+            (DrawingKind::ToolList, _) => crate::drawing::tool_list_svg(document, &id),
+            (DrawingKind::StockSetup, ExportFormat::Pdf) => crate::drawing::stock_setup_pdf(document, &id),
+            (DrawingKind::StockSetup, _) => crate::drawing::stock_setup_svg(document, &id),
+            (DrawingKind::DepthMap, ExportFormat::Pdf) => {
+                crate::drawing::depth_map_pdf(document, &toolpath::generate(document)?, &id)
+            }
+            (DrawingKind::DepthMap, _) => crate::drawing::depth_map_svg(document, &toolpath::generate(document)?, &id),
         };
-        Ok(DrawingReport { format: format.as_str().to_string(), text: drawing.text, dropped: drawing.dropped })
+        Ok(DrawingReport {
+            format: format.as_str().to_string(),
+            kind: kind.as_str().to_string(),
+            text: drawing.text,
+            dropped: drawing.dropped,
+        })
     }
 
     /// Returns the summary, validation, toolpaths and G-code size of the document.

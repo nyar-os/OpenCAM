@@ -12,6 +12,7 @@ import type {
     CycleTimeReport,
     DocumentSummary,
     DrawingFormat,
+    DrawingKind,
     DrawingReport,
     DxfImportReport,
     DxfImportRequest,
@@ -230,9 +231,9 @@ export function exportDocument(path: string, format: ExportFormat, target: strin
     return decode<ExportReport>(() => binding('export').export(path, format, target));
 }
 
-/** Renders a document as an `svg` or `pdf` drawing without writing it. */
-export function drawing(path: string, format: DrawingFormat): DrawingReport {
-    return decode<DrawingReport>(() => binding('drawing').drawing(path, format));
+/** Renders a document as an `svg` or `pdf` sheet without writing it. */
+export function drawing(path: string, format: DrawingFormat, kind: DrawingKind = 'toolpath'): DrawingReport {
+    return decode<DrawingReport>(() => binding('drawing').drawing(path, format, kind));
 }
 
 /** Returns the full report of a document. */

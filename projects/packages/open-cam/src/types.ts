@@ -28,6 +28,9 @@ export type CoolantMode = 'off' | 'flood' | 'mist';
 /** Vector drawing formats rendered from the generated toolpath. */
 export type DrawingFormat = 'svg' | 'pdf';
 
+/** Kinds of vector sheet `renderDrawing()` can produce. */
+export type DrawingKind = 'toolpath' | 'tool-list' | 'stock-setup' | 'depth-map';
+
 /** Export formats `exportDocument()` can write. */
 export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md' | DrawingFormat | 'dxf';
 
@@ -520,6 +523,8 @@ export interface ExportReport {
 /** Result of `renderDrawing()`. */
 export interface DrawingReport {
     readonly format: DrawingFormat;
+    /** Sheet kind that was rendered. */
+    readonly kind: DrawingKind;
     /** Rendered sheet text, written unchanged by the CLI. */
     readonly text: string;
     /** Non-ASCII characters replaced by `?`; `0` for SVG. */

@@ -54,6 +54,7 @@ export const errorCodes = [
     'cli/unknown-option',
     'cli/invalid-number',
     'cli/unknown-format',
+    'cli/unknown-kind',
     'capability/not-implemented',
 ] as const;
 

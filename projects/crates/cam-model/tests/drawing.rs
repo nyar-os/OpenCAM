@@ -1,7 +1,8 @@
 //! SVG and PDF toolpath drawings.
 
 use cam_model::{
-    CamDocument, Hole, Island, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool, generate_toolpaths, pdf, svg,
+    CamDocument, Hole, Island, Operation, OperationKind, PathPoint, Stock, TabSettings, Tool, depth_map_pdf, depth_map_svg,
+    generate_toolpaths, pdf, stock_setup_pdf, stock_setup_svg, svg, tool_list_pdf, tool_list_svg,
 };
 
 fn tool() -> Tool {
@@ -251,4 +252,281 @@ fn rapids_form_an_underlay_below_the_cutting_moves() {
         sheet.text.find("data-rapids=\"true\"").unwrap() < sheet.text.find("<polyline").unwrap(),
         "dashed rapids must be painted before the cutting polylines"
     );
+}
+
+/// The sheet's coordinate mapping for the fixed 120 x 80 stock frame.
+fn round3(value: f64) -> String {
+    let rounded = (value * 1000.0).round() / 1000.0;
+    if rounded.abs() < 1e-9 { "0".to_string() } else { format!("{rounded}") }
+}
+
+#[test]
+fn rapid_traverses_start_where_the_previous_operation_ended() {
+    let mut document = CamDocument::new(Stock::new(120.0, 80.0, 12.0));
+    document.tools.push(tool());
+    document.operations.push(contour("first"));
+    let mut second = contour("second");
+    second.x = 70.0;
+    document.operations.push(second);
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let sheet = svg(&document, &report, "traverse");
+
+    assert_eq!(sheet.text.matches("x1=\"5\" y1=\"85\"").count(), 1, "only the first operation starts at the origin");
+    let last = report.operations[0].segments.last().expect("the first operation has moves");
+    let x = round3(5.0 + last.to.x);
+    let y = round3(85.0 - last.to.y);
+    assert!(sheet.text.contains(&format!("x1=\"{x}\" y1=\"{y}\"")), "the second operation traverses from the first one's end");
+}
+
+#[test]
+fn multi_level_cuts_are_shaded_per_z_level() {
+    let mut document = CamDocument::new(Stock::new(120.0, 80.0, 12.0));
+    document.tools.push(tool());
+    let mut deep = contour("deep");
+    deep.depth = 4.0;
+    deep.stepdown = 2.0;
+    document.operations.push(deep);
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+
+    let sheet = svg(&document, &report, "levels");
+    assert!(sheet.text.contains("stroke=\"#1f6feb\""), "the first level keeps the full colour");
+    assert!(sheet.text.contains("stroke=\"#0b2752\""), "the deepest level is shaded to 35 %");
+    assert!(sheet.text.contains("Z10 depth 2 mm"), "the legend names the first level");
+    assert!(sheet.text.contains("Z8 depth 4 mm"), "the legend names the second level");
+
+    let page = pdf(&document, &report, "levels");
+    assert!(page.text.contains("0.122 0.435 0.922 RG"), "the first level keeps the full colour in the PDF");
+    assert!(page.text.contains("0.043 0.153 0.322 RG"), "the deepest level is shaded in the PDF too");
+}
+
+#[test]
+fn legend_omits_the_repeated_kind_of_a_default_operation_id() {
+    let mut document = CamDocument::new(Stock::new(120.0, 80.0, 12.0));
+    document.tools.push(tool());
+    let mut single = engrave("engrave");
+    single.stepdown = 1.0;
+    document.operations.push(single);
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let sheet = svg(&document, &report, "default-id");
+    assert!(sheet.text.contains("#1 engrave  tool t6 d6 r3"), "the repeated kind is printed once");
+    assert!(!sheet.text.contains("engrave engrave"), "the legend does not stutter");
+}
+
+#[test]
+fn plunge_dots_are_merged_across_depth_levels() {
+    let mut document = CamDocument::new(Stock::new(120.0, 80.0, 12.0));
+    document.tools.push(tool());
+    let mut pocket = Operation::new("deep-pocket", OperationKind::Pocket, "t6", 4.0, 2.0);
+    pocket.x = 20.0;
+    pocket.y = 20.0;
+    pocket.width = 40.0;
+    pocket.height = 30.0;
+    document.operations.push(pocket);
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let sheet = svg(&document, &report, "plunges");
+
+    let start = sheet.text.find("data-operation=\"deep-pocket\"").expect("the pocket group is drawn");
+    let group = &sheet.text[start..];
+    let group = &group[..group.find("</g>").expect("the pocket group closes")];
+    assert_eq!(group.matches("r=\"0.6\"").count(), 1, "the repeated plunge point is drawn once");
+}
+
+#[test]
+fn tool_list_sheet_lists_every_declared_tool() {
+    let document = document();
+    let sheet = tool_list_svg(&document, "bracket");
+    assert!(sheet.text.contains("data-tool-table=\"true\""));
+    assert!(sheet.text.contains(">t6</text>"), "the tool id is a cell");
+    assert!(sheet.text.contains("flat 6"), "the tool name is a cell");
+    assert!(sheet.text.contains("12000"), "the spindle speed is a cell");
+    assert!(sheet.text.contains("1 tool(s)"));
+    assert!(sheet.text.ends_with("</svg>\n"));
+    assert_eq!(sheet.dropped, 0);
+
+    let page = tool_list_pdf(&document, "bracket");
+    assert!(page.text.starts_with("%PDF-1.4\n"));
+    assert!(page.text.contains("flat 6"), "the name survives the PDF writer");
+    assert!(page.text.ends_with("%%EOF\n"));
+
+    let empty = CamDocument::new(Stock::new(50.0, 50.0, 10.0));
+    assert!(tool_list_svg(&empty, "none").text.contains("no tools declared"));
+    assert_eq!(tool_list_svg(&document, "bracket").text, tool_list_svg(&document, "bracket").text);
+}
+
+#[test]
+fn stock_setup_sheet_draws_nominal_operation_geometry() {
+    let document = document();
+    let sheet = stock_setup_svg(&document, "bracket");
+    assert!(sheet.text.contains("data-stock=\"true\""));
+    assert!(sheet.text.contains("data-operation=\"profile\""));
+    assert!(sheet.text.contains("#1 contour profile"), "operations are annotated");
+    assert!(sheet.text.contains("data-legend=\"true\""));
+    assert!(sheet.text.contains("data-title-block=\"true\""));
+    assert!(sheet.text.contains("stock setup drawing"));
+    assert!(sheet.text.contains("3 operation(s)"));
+    assert!(sheet.text.contains("槽"), "SVG keeps Unicode");
+    assert_eq!(sheet.dropped, 0);
+
+    let page = stock_setup_pdf(&document, "bracket");
+    assert!(page.text.starts_with("%PDF-1.4\n"));
+    assert!(page.text.contains("stock setup drawing \\(PDF\\)"));
+    assert!(page.text.ends_with("%%EOF\n"));
+    assert!(page.dropped > 0, "the non-ASCII id degrades in the PDF");
+
+    let drill = drill_document();
+    let sheet = stock_setup_svg(&drill, "drill");
+    assert_eq!(sheet.text.matches("r=\"3\" fill=\"none\"").count(), 4, "drill rings at the tool diameter");
+    assert_eq!(stock_setup_svg(&document, "bracket").text, stock_setup_svg(&document, "bracket").text);
+}
+
+#[test]
+fn depth_map_sheet_shades_levels_and_annotates_heights() {
+    let document = document();
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let sheet = depth_map_svg(&document, &report, "bracket");
+    assert!(sheet.text.contains("data-depth-map=\"true\""));
+    assert!(sheet.text.contains("stroke=\"#1f6feb\""), "the first contour level keeps the full colour");
+    assert!(sheet.text.contains("stroke=\"#0b2752\""), "the second contour level is shaded");
+    assert!(sheet.text.contains(">Z10.5</text>"), "the first level is annotated");
+    assert!(sheet.text.contains(">Z9</text>"), "the second level is annotated");
+    assert!(!sheet.text.contains("stroke-dasharray"), "the depth map omits the rapids");
+    assert!(sheet.text.contains("depth map drawing (SVG)"));
+
+    let page = depth_map_pdf(&document, &report, "bracket");
+    assert!(page.text.starts_with("%PDF-1.4\n"));
+    assert!(page.text.contains("depth map drawing \\(PDF\\)"));
+    assert!(page.text.ends_with("%%EOF\n"));
+    assert_eq!(depth_map_svg(&document, &report, "bracket").text, sheet.text);
+}
+
+#[test]
+fn session_drawing_kinds_parse_and_render() {
+    use cam_model::{DrawingKind, ExportFormat, OpenCam};
+
+    let directory = std::env::temp_dir().join(format!("open-cam-drawing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).expect("create test directory");
+    let path = directory.join("sheet.ocam");
+    let mut session = OpenCam::new();
+    session.create(&path).expect("create");
+    session.set_stock(Stock::new(120.0, 80.0, 12.0)).expect("stock");
+    session.add_tool(tool()).expect("tool");
+
+    let report = session.drawing(DrawingKind::ToolList, ExportFormat::Svg).expect("tool list sheet");
+    assert_eq!(report.kind, "tool-list");
+    assert!(report.text.contains("data-tool-table=\"true\""));
+    let report = session.drawing(DrawingKind::DepthMap, ExportFormat::Pdf).expect("depth map sheet");
+    assert_eq!(report.kind, "depth-map");
+    assert!(report.text.starts_with("%PDF-1.4\n"));
+    let report = session.drawing(DrawingKind::Toolpath, ExportFormat::Svg).expect("toolpath sheet");
+    assert_eq!(report.kind, "toolpath");
+    assert!(report.text.contains("data-rapids=\"true\""));
+
+    assert_eq!("toolpath".parse::<DrawingKind>().expect("default kind"), DrawingKind::Toolpath);
+    assert_eq!("stock-setup".parse::<DrawingKind>().expect("setup kind"), DrawingKind::StockSetup);
+    let error = "sections".parse::<DrawingKind>().expect_err("unknown kind");
+    assert_eq!(error.code, "cli/unknown-kind");
+    let error = session.drawing(DrawingKind::ToolList, ExportFormat::Gcode).expect_err("gcode is not a sheet");
+    assert_eq!(error.code, "export/not-drawing");
+}
+
+#[test]
+fn svg_sheets_pass_a_quality_self_check() {
+    let document = document();
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let sheets = [
+        svg(&document, &report, "bracket").text,
+        tool_list_svg(&document, "bracket").text,
+        stock_setup_svg(&document, "bracket").text,
+        depth_map_svg(&document, &report, "bracket").text,
+    ];
+    for sheet in &sheets {
+        let (width, height) = view_box(sheet);
+        assert_positions(sheet, width, height);
+        assert_colors(sheet);
+        assert_text_positions_are_unique(sheet);
+    }
+}
+
+fn view_box(sheet: &str) -> (f64, f64) {
+    let start = sheet.find("viewBox=\"0 0 ").expect("a viewBox") + "viewBox=\"0 0 ".len();
+    let rest = &sheet[start..];
+    let end = rest.find('"').expect("the viewBox closes");
+    let mut parts = rest[..end].split(' ');
+    let width: f64 = parts.next().expect("a width").parse().expect("a numeric width");
+    let height: f64 = parts.next().expect("a height").parse().expect("a numeric height");
+    (width, height)
+}
+
+fn assert_positions(sheet: &str, width: f64, height: f64) {
+    for key in [" x=\"", " x1=\"", " x2=\"", " cx=\""] {
+        let mut cursor = 0;
+        while let Some(found) = sheet[cursor..].find(key) {
+            let start = cursor + found + key.len();
+            let end = sheet[start..].find('"').expect("a quoted value");
+            let value: f64 = sheet[start..start + end].parse().expect("a numeric coordinate");
+            assert!((-(1e-9)..=(width + 1e-9)).contains(&value), "{key}{value} exceeds the sheet width {width}");
+            cursor = start + end;
+        }
+    }
+    for key in [" y=\"", " y1=\"", " y2=\"", " cy=\""] {
+        let mut cursor = 0;
+        while let Some(found) = sheet[cursor..].find(key) {
+            let start = cursor + found + key.len();
+            let end = sheet[start..].find('"').expect("a quoted value");
+            let value: f64 = sheet[start..start + end].parse().expect("a numeric coordinate");
+            assert!((-(1e-9)..=(height + 1e-9)).contains(&value), "{key}{value} exceeds the sheet height {height}");
+            cursor = start + end;
+        }
+    }
+    let mut cursor = 0;
+    while let Some(found) = sheet[cursor..].find("points=\"") {
+        let start = cursor + found + "points=\"".len();
+        let end = sheet[start..].find('"').expect("the points close");
+        for pair in sheet[start..start + end].split(' ') {
+            let (x, y) = pair.split_once(',').expect("an x,y pair");
+            let x: f64 = x.parse().expect("a numeric x");
+            let y: f64 = y.parse().expect("a numeric y");
+            assert!((-(1e-9)..=(width + 1e-9)).contains(&x), "point x {x} leaves the sheet");
+            assert!((-(1e-9)..=(height + 1e-9)).contains(&y), "point y {y} leaves the sheet");
+        }
+        cursor = start + end;
+    }
+}
+
+fn assert_colors(sheet: &str) {
+    for key in ["stroke=\"", "fill=\""] {
+        let mut cursor = 0;
+        while let Some(found) = sheet[cursor..].find(key) {
+            let start = cursor + found + key.len();
+            let end = sheet[start..].find('"').expect("the colour closes");
+            let value = &sheet[start..start + end];
+            cursor = start + end;
+            if value == "none" {
+                continue;
+            }
+            let hex = value.strip_prefix('#').expect("a hash-prefixed colour");
+            assert!(
+                hex.len() == 6 && hex.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+                "colour `{value}` is not a lowercase 6-digit hex"
+            );
+        }
+    }
+}
+
+fn assert_text_positions_are_unique(sheet: &str) {
+    let mut seen: Vec<(i64, i64)> = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = sheet[cursor..].find("<text x=\"") {
+        let start = cursor + found + "<text x=\"".len();
+        let x_end = sheet[start..].find('"').expect("x closes");
+        let x: f64 = sheet[start..start + x_end].parse().expect("a numeric x");
+        let y_start = start + sheet[start..].find(" y=\"").expect("a y attribute") + " y=\"".len();
+        let y_end = sheet[y_start..].find('"').expect("y closes");
+        let y: f64 = sheet[y_start..y_start + y_end].parse().expect("a numeric y");
+        let key = (x.round() as i64, y.round() as i64);
+        assert!(!seen.contains(&key), "two texts share the position {x}, {y}");
+        seen.push(key);
+        cursor = y_start + y_end;
+    }
 }
