@@ -70,6 +70,8 @@ pub enum ExportFormat {
     Svg,
     /// A one-page PDF toolpath drawing.
     Pdf,
+    /// An ASCII DXF drawing of the document geometry.
+    Dxf,
 }
 
 impl ExportFormat {
@@ -82,6 +84,7 @@ impl ExportFormat {
             Self::Md => "md",
             Self::Svg => "svg",
             Self::Pdf => "pdf",
+            Self::Dxf => "dxf",
         }
     }
 
@@ -102,10 +105,11 @@ impl FromStr for ExportFormat {
             "md" | "markdown" => Ok(Self::Md),
             "svg" => Ok(Self::Svg),
             "pdf" => Ok(Self::Pdf),
-            "step" | "stp" | "dxf" => Err(crate::not_implemented(&format!("`{value}` export"))),
+            "dxf" => Ok(Self::Dxf),
+            "step" | "stp" => Err(crate::not_implemented(&format!("`{value}` export"))),
             other => Err(CamError::new(
                 "cli/unknown-format",
-                format!("unknown export format `{other}`; only gcode, json, csv, md, svg or pdf is supported"),
+                format!("unknown export format `{other}`; only gcode, json, csv, md, svg, pdf or dxf is supported"),
             )),
         }
     }
@@ -532,6 +536,7 @@ impl OpenCam {
                 let drawing = crate::drawing::pdf(document, &report, &id);
                 (drawing.text, drawing.dropped)
             }
+            ExportFormat::Dxf => (dxf::export(document), 0),
         };
         write_atomic(target, &text)?;
         Ok(ExportReport {

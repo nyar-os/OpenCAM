@@ -26,6 +26,8 @@
 //!   feed recommendations;
 //! * ASCII DXF import of 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE`
 //!   entities into one `engrave` operation each;
+//! * ASCII DXF export of the stock, operation outlines, islands and drill holes
+//!   as `LINE`, `LWPOLYLINE` and `CIRCLE` entities;
 //! * JSON, CSV and Markdown toolpath reports.
 //!
 //! Three-dimensional surfacing, adaptive clearing, turning, four-axis work,
@@ -57,7 +59,8 @@ pub use crate::{
     drawing::{Drawing, pdf, svg},
     dxf::{
         DEFAULT_DXF_DEPTH, DEFAULT_DXF_TOLERANCE, DEFAULT_ENGRAVE_TOOL_ID, DXF_IMPORT_FORMAT, DXF_IMPORT_VERSION, DxfImport,
-        DxfImportReport, DxfImportRequest, DxfLoss, MAX_ARC_SEGMENTS, MIN_CIRCLE_SEGMENTS, import as import_dxf,
+        DxfImportReport, DxfImportRequest, DxfLoss, MAX_ARC_SEGMENTS, MIN_CIRCLE_SEGMENTS, export as export_dxf,
+        import as import_dxf,
     },
     error::{CamError, not_implemented},
     estimate::{
@@ -130,6 +133,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
     "toolLibrary": "supported",
     "gcodePost": "supported",
     "step": "unsupported",
-    "dxf": "supported"
+    "dxf": "supported",
+    "dxfExport": "supported"
   }
 }"#;

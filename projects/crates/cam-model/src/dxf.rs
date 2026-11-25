@@ -1,4 +1,10 @@
-//! ASCII DXF import of a small 2D subset.
+//! ASCII DXF import and export of a small 2D subset.
+//!
+//! [`export`] writes the document geometry back as the same subset: the stock
+//! rectangle on layer `STOCK`, every operation outline, island and drill hole
+//! on a layer derived from the operation id, as `LINE`, `LWPOLYLINE` and
+//! `CIRCLE` entities. Coordinates are millimetres rounded to three decimals,
+//! so the same document always produces the same bytes.
 //!
 //! The reader understands `LINE`, `LWPOLYLINE`, `POLYLINE` with `VERTEX`
 //! records, `ARC` and `CIRCLE` in the `ENTITIES` section of an ASCII DXF file.
@@ -238,6 +244,113 @@ pub fn import(text: &str, request: &DxfImportRequest) -> Result<DxfImport, CamEr
 
     let document = build_document(&parsed, &request);
     Ok(DxfImport { document, ins_units: units.value, source_units, entity_count: parsed.len(), skipped_count: skipped, losses })
+}
+
+/// Writes the document geometry as an ASCII DXF drawing.
+///
+/// The `HEADER` declares `$INSUNITS` `4` (millimetres) and the `ENTITIES`
+/// section carries, in document order: a closed `LWPOLYLINE` of the stock
+/// rectangle on layer `STOCK`; every `engrave` path as a `LINE` (two open
+/// points) or a `LWPOLYLINE` whose flag `70` is `1` when closed; every
+/// `contour` and `pocket` outline as a closed rectangle `LWPOLYLINE` or, for
+/// `shape` `circle`, a `CIRCLE`; every pocket island likewise; and every
+/// `drill` hole as a `CIRCLE` of the tool radius. A `face` operation adds no
+/// entity because the stock rectangle already spans it. Operation layers are
+/// the operation ids with every character outside `[A-Za-z0-9_-]` replaced by
+/// `-`; an empty result falls back to `OPERATION`.
+pub fn export(document: &CamDocument) -> String {
+    let mut text = String::from("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
+    rectangle(&mut text, "STOCK", 0.0, 0.0, document.stock.width, document.stock.depth);
+    for operation in &document.operations {
+        let layer = layer_name(&operation.id);
+        match operation.kind {
+            OperationKind::Engrave => {
+                let points: Vec<(f64, f64)> = operation.path.iter().map(|point| (point.x, point.y)).collect();
+                if points.len() == 2 && !operation.closed {
+                    line(&mut text, &layer, points[0], points[1]);
+                }
+                else if points.len() >= 2 {
+                    polyline(&mut text, &layer, &points, operation.closed);
+                }
+            }
+            OperationKind::Contour | OperationKind::Pocket => {
+                outline(&mut text, &layer, operation);
+                for island in &operation.islands {
+                    rectangle(&mut text, &layer, island.x, island.y, island.width, island.height);
+                }
+            }
+            OperationKind::Drill => {
+                if let Some(radius) = document.tools.iter().find(|tool| tool.id == operation.tool).map(Tool::radius) {
+                    for hole in operation.resolved_holes() {
+                        circle(&mut text, &layer, (hole.x, hole.y), radius);
+                    }
+                }
+            }
+            OperationKind::Face => {}
+        }
+    }
+    text.push_str("0\nENDSEC\n0\nEOF\n");
+    text
+}
+
+fn outline(text: &mut String, layer: &str, operation: &Operation) {
+    if operation.shape.as_deref() == Some("circle") {
+        if operation.width > 0.0 && operation.height > 0.0 {
+            circle(
+                text,
+                layer,
+                (operation.x + operation.width / 2.0, operation.y + operation.height / 2.0),
+                operation.width / 2.0,
+            );
+        }
+        return;
+    }
+    rectangle(text, layer, operation.x, operation.y, operation.width, operation.height);
+}
+
+fn rectangle(text: &mut String, layer: &str, x: f64, y: f64, width: f64, height: f64) {
+    if width > 0.0 && height > 0.0 {
+        polyline(text, layer, &[(x, y), (x + width, y), (x + width, y + height), (x, y + height)], true);
+    }
+}
+
+fn polyline(text: &mut String, layer: &str, points: &[(f64, f64)], closed: bool) {
+    text.push_str(&format!("0\nLWPOLYLINE\n8\n{layer}\n90\n{}\n70\n{}\n", points.len(), u8::from(closed)));
+    for &(x, y) in points {
+        text.push_str(&format!("10\n{}\n20\n{}\n", number(x), number(y)));
+    }
+}
+
+fn line(text: &mut String, layer: &str, start: (f64, f64), end: (f64, f64)) {
+    text.push_str(&format!(
+        "0\nLINE\n8\n{layer}\n10\n{}\n20\n{}\n11\n{}\n21\n{}\n",
+        number(start.0),
+        number(start.1),
+        number(end.0),
+        number(end.1)
+    ));
+}
+
+fn circle(text: &mut String, layer: &str, centre: (f64, f64), radius: f64) {
+    text.push_str(&format!(
+        "0\nCIRCLE\n8\n{layer}\n10\n{}\n20\n{}\n40\n{}\n",
+        number(centre.0),
+        number(centre.1),
+        number(radius)
+    ));
+}
+
+fn number(value: f64) -> String {
+    let rounded = (value * 1000.0).round() / 1000.0;
+    if rounded.abs() < 1e-9 { "0".to_string() } else { format!("{rounded}") }
+}
+
+fn layer_name(id: &str) -> String {
+    let mut layer = String::with_capacity(id.len());
+    for character in id.chars() {
+        layer.push(if character.is_ascii_alphanumeric() || character == '-' || character == '_' { character } else { '-' });
+    }
+    if layer.is_empty() { "OPERATION".to_string() } else { layer }
 }
 
 fn read_groups(text: &str) -> Result<Vec<Group>, CamError> {

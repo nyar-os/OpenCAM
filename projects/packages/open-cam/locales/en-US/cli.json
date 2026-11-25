@@ -85,7 +85,7 @@
             "missingOption": "option `{option}` is required",
             "invalidNumber": "option `{option}` is not a number: `{value}`",
             "unknownArcMode": "unknown arc mode `{value}`; only linear or arc is supported",
-            "unknownFormat": "unknown export format `{format}`; only gcode, json, csv, md, svg or pdf is supported"
+            "unknownFormat": "unknown export format `{format}`; only gcode, json, csv, md, svg, pdf or dxf is supported"
         }
     }
 }

@@ -29,7 +29,7 @@ export type CoolantMode = 'off' | 'flood' | 'mist';
 export type DrawingFormat = 'svg' | 'pdf';
 
 /** Export formats `exportDocument()` can write. */
-export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md' | DrawingFormat;
+export type ExportFormat = 'gcode' | 'json' | 'csv' | 'md' | DrawingFormat | 'dxf';
 
 /** Severity of a validation finding. */
 export type Severity = 'error' | 'warning' | 'notice';

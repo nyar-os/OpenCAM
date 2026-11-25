@@ -115,10 +115,10 @@ function exportFormat(ctx: CommandContext, value: string): ExportFormat {
     if (value === 'gcode' || value === 'nc' || value === 'tap') {
         return 'gcode';
     }
-    if (value === 'json' || value === 'csv' || value === 'md' || value === 'svg' || value === 'pdf') {
+    if (value === 'json' || value === 'csv' || value === 'md' || value === 'svg' || value === 'pdf' || value === 'dxf') {
         return value;
     }
-    if (value === 'step' || value === 'stp' || value === 'dxf') {
+    if (value === 'step' || value === 'stp') {
         throw new NotImplementedError(`${value} export`);
     }
     throw fail(ctx, 'cli/unknown-format', 'cli.error.unknownFormat', { format: value });
@@ -712,7 +712,7 @@ cli
 
 cli
     .command('export', 'cli.cmd.export')
-    .option('--format <gcode|json|csv|md|svg|pdf>', 'cli.opt.format')
+    .option('--format <gcode|json|csv|md|svg|pdf|dxf>', 'cli.opt.format')
     .option('--out <path>', 'cli.opt.out')
     .actionCtx(async (options, _args, ctx) =>
         guard(ctx, async () => {
