@@ -67,7 +67,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     session.add_operation(engrave)?;
 
-    for format in [ExportFormat::Gcode, ExportFormat::Csv, ExportFormat::Md, ExportFormat::Json] {
+    for format in
+        [ExportFormat::Gcode, ExportFormat::Csv, ExportFormat::Md, ExportFormat::Json, ExportFormat::Svg, ExportFormat::Pdf]
+    {
         let extension = format.as_str();
         let target = out.join(format!("demo.{extension}"));
         match session.export(format, &target) {

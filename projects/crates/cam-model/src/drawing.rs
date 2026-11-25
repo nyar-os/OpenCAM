@@ -8,7 +8,7 @@
 //! is written.
 
 use crate::{
-    model::CamDocument,
+    model::{CamDocument, OperationKind},
     toolpath::{Move, MoveKind, OperationPath, ToolpathReport},
 };
 
@@ -41,6 +41,7 @@ const INK: &str = "#1f2933";
 const MUTED: &str = "#64748b";
 const PATH_WIDTH_MM: f64 = 0.5;
 const RAPID_WIDTH_MM: f64 = 0.3;
+const DRILL_RING_WIDTH_MM: f64 = 0.5;
 const PX_PER_MM: f64 = 8.0;
 const PAD_MM: f64 = 5.0;
 const MIN_SHEET_WIDTH_MM: f64 = 120.0;
@@ -63,7 +64,8 @@ const MM_TO_PT: f64 = 2.834_646;
 /// carries the document id, revision, units, operation count, estimated time
 /// and scale. An empty document still produces a valid sheet.
 pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
-    let drawings: Vec<OpDrawing> = report.operations.iter().map(project).collect();
+    let drawings: Vec<OpDrawing> =
+        report.operations.iter().map(|operation| project(operation, drill_radius(document, operation))).collect();
     let frame = frame(document, &drawings);
     let legend = legend(document, report);
     let legend_height = legend.len() as f64 * LEGEND_ROW_MM + LEGEND_GAP_MM;
@@ -133,6 +135,16 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
                 number(map_y(to.1))
             ));
         }
+        if let Some(radius) = drawing.hole_radius {
+            for (x, y) in &drawing.holes {
+                svg.push_str(&format!(
+                    "    <circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{DRILL_RING_WIDTH_MM}\"/>\n",
+                    number(map_x(*x)),
+                    number(map_y(*y)),
+                    number(radius)
+                ));
+            }
+        }
         for (x, y) in &drawing.plunges {
             svg.push_str(&format!(
                 "    <circle cx=\"{}\" cy=\"{}\" r=\"0.6\" fill=\"{hex}\"/>\n",
@@ -170,6 +182,10 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
                 "    <circle cx=\"5.5\" cy=\"{}\" r=\"0.7\" fill=\"{color}\"/>\n",
                 number(baseline - 0.8)
             )),
+            Style::Ring => svg.push_str(&format!(
+                "    <circle cx=\"5.5\" cy=\"{}\" r=\"1.6\" fill=\"none\" stroke=\"{color}\" stroke-width=\"0.5\"/>\n",
+                number(baseline - 0.8)
+            )),
         }
         svg.push_str(&format!(
             "    <text x=\"10.5\" y=\"{}\" font-family=\"monospace\" font-size=\"2.4\" fill=\"{INK}\">{}</text>\n",
@@ -190,7 +206,8 @@ pub fn svg(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
 /// and drawn with Helvetica. Non-ASCII characters become `?` and are counted in
 /// [`Drawing::dropped`].
 pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing {
-    let drawings: Vec<OpDrawing> = report.operations.iter().map(project).collect();
+    let drawings: Vec<OpDrawing> =
+        report.operations.iter().map(|operation| project(operation, drill_radius(document, operation))).collect();
     let frame = frame(document, &drawings);
     let legend = legend(document, report);
     let legend_height = legend.len() as f64 * PDF_LEGEND_ROW + 8.0;
@@ -257,6 +274,12 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
                 map_y(to.1)
             ));
         }
+        if let Some(radius) = drawing.hole_radius {
+            for (x, y) in &drawing.holes {
+                content.push_str(&format!("% drill hole r={}\n", number(radius)));
+                push_pdf_circle(&mut content, map_x(*x), map_y(*y), radius * scale, colour, true);
+            }
+        }
         for (x, y) in &drawing.plunges {
             push_pdf_circle(&mut content, map_x(*x), map_y(*y), 1.5, colour, false);
         }
@@ -282,6 +305,7 @@ pub fn pdf(document: &CamDocument, report: &ToolpathReport, id: &str) -> Drawing
                 PDF_MARGIN + 18.0
             )),
             Style::Dot => push_pdf_circle(&mut content, PDF_MARGIN + 9.0, row_y, 2.0, legend_colour(entry), false),
+            Style::Ring => push_pdf_circle(&mut content, PDF_MARGIN + 9.0, row_y, 3.2, legend_colour(entry), true),
         }
         push_pdf_text(&mut content, PDF_MARGIN + 24.0, row_y - 2.0, 7.0, "0", &entry.label, &mut dropped);
         row_y -= PDF_LEGEND_ROW;
@@ -320,11 +344,22 @@ struct OpDrawing {
     cuts: Vec<Vec<(f64, f64)>>,
     rapids: Vec<((f64, f64), (f64, f64))>,
     plunges: Vec<(f64, f64)>,
+    holes: Vec<(f64, f64)>,
+    hole_radius: Option<f64>,
     start: Option<(f64, f64)>,
 }
 
-fn project(operation: &OperationPath) -> OpDrawing {
-    let mut drawing = OpDrawing { cuts: Vec::new(), rapids: Vec::new(), plunges: Vec::new(), start: None };
+/// Radius of the drilling tool, or `None` for a non-drill operation.
+fn drill_radius(document: &CamDocument, operation: &OperationPath) -> Option<f64> {
+    if operation.kind != OperationKind::Drill {
+        return None;
+    }
+    document.tools.iter().find(|tool| tool.id == operation.tool).map(|tool| tool.radius())
+}
+
+fn project(operation: &OperationPath, hole_radius: Option<f64>) -> OpDrawing {
+    let mut drawing =
+        OpDrawing { cuts: Vec::new(), rapids: Vec::new(), plunges: Vec::new(), holes: Vec::new(), hole_radius, start: None };
     let mut chain: Vec<(f64, f64)> = Vec::new();
     for movement in &operation.segments {
         match movement.kind {
@@ -336,7 +371,12 @@ fn project(operation: &OperationPath) -> OpDrawing {
             }
             MoveKind::Plunge => {
                 flush(&mut chain, &mut drawing.cuts);
-                drawing.plunges.push((movement.from.x, movement.from.y));
+                if hole_radius.is_some() {
+                    drawing.holes.push((movement.from.x, movement.from.y));
+                }
+                else {
+                    drawing.plunges.push((movement.from.x, movement.from.y));
+                }
             }
             MoveKind::Cut => {
                 if chain.is_empty() {
@@ -428,8 +468,14 @@ fn frame(document: &CamDocument, drawings: &[OpDrawing]) -> Frame {
         for point in drawing.cuts.iter().flatten() {
             include(point.0, point.1);
         }
-        for point in &drawing.plunges {
+        for point in drawing.holes.iter().chain(drawing.plunges.iter()) {
             include(point.0, point.1);
+        }
+        if let Some(radius) = drawing.hole_radius {
+            for point in &drawing.holes {
+                include(point.0 - radius, point.1 - radius);
+                include(point.0 + radius, point.1 + radius);
+            }
         }
         for (from, to) in &drawing.rapids {
             include(from.0, from.1);
@@ -450,6 +496,7 @@ enum Style {
     Solid,
     Dashed,
     Dot,
+    Ring,
 }
 
 struct LegendRow {
@@ -463,6 +510,7 @@ fn legend(document: &CamDocument, report: &ToolpathReport) -> Vec<LegendRow> {
         LegendRow { colour: None, style: Style::Solid, label: "cutting move (G1/G2/G3)".to_string() },
         LegendRow { colour: None, style: Style::Dashed, label: "rapid move (G0)".to_string() },
         LegendRow { colour: None, style: Style::Dot, label: "plunge / start point".to_string() },
+        LegendRow { colour: None, style: Style::Ring, label: "drill hole (tool diameter)".to_string() },
     ];
     for (index, operation) in report.operations.iter().enumerate() {
         let detail = match document.tools.iter().find(|tool| tool.id == operation.tool) {

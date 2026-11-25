@@ -1,6 +1,6 @@
 //! SVG and PDF toolpath drawings.
 
-use cam_model::{CamDocument, Operation, OperationKind, PathPoint, Stock, Tool, generate_toolpaths, pdf, svg};
+use cam_model::{CamDocument, Hole, Operation, OperationKind, PathPoint, Stock, Tool, generate_toolpaths, pdf, svg};
 
 fn tool() -> Tool {
     Tool {
@@ -39,6 +39,17 @@ fn document() -> CamDocument {
     document.operations.push(engrave("logo & <tag>"));
     document.operations.push(engrave("槽"));
     document.revision = 2;
+    document
+}
+
+/// One document with one drilling operation using the 6 mm tool.
+fn drill_document() -> CamDocument {
+    let mut document = CamDocument::new(Stock::new(120.0, 80.0, 12.0));
+    document.tools.push(tool());
+    let mut drill = Operation::new("holes", OperationKind::Drill, "t6", 12.0, 6.0);
+    drill.holes =
+        vec![Hole { x: 25.0, y: 25.0 }, Hole { x: 45.0, y: 25.0 }, Hole { x: 25.0, y: 45.0 }, Hole { x: 45.0, y: 45.0 }];
+    document.operations.push(drill);
     document
 }
 
@@ -97,6 +108,32 @@ fn pdf_sheet_is_one_a4_landscape_page_with_a_title_block() {
     assert!(drawing.text.contains("1 J 1 j"), "cutting polylines are round-joined");
     assert!(drawing.text.contains("[2 2] 0 d"), "rapid moves are dashed");
     assert!(drawing.text.ends_with("%%EOF\n"));
+}
+
+#[test]
+fn svg_draws_drill_holes_at_tool_diameter() {
+    let document = drill_document();
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let drawing = svg(&document, &report, "drill");
+
+    let start = drawing.text.find("data-operation=\"holes\"").expect("the drill group is drawn");
+    let group = &drawing.text[start..];
+    let group = &group[..group.find("</g>").expect("the drill group closes")];
+    assert_eq!(group.matches("r=\"3\" fill=\"none\"").count(), 4, "one hollow ring per hole at the 3 mm tool radius");
+    assert!(!group.contains("r=\"0.6\""), "a drill does not draw the small plunge dot");
+    assert!(drawing.text.contains("drill hole (tool diameter)"), "the legend explains the hole ring");
+}
+
+#[test]
+fn pdf_draws_drill_holes_at_tool_diameter() {
+    let document = drill_document();
+    let report = generate_toolpaths(&document).expect("the sample is machineable");
+    let drawing = pdf(&document, &report, "drill");
+
+    assert!(drawing.text.starts_with("%PDF-1.4\n"));
+    assert!(drawing.text.ends_with("%%EOF\n"));
+    assert_eq!(drawing.text.matches("% drill hole r=3\n").count(), 4, "one 3 mm ring per hole");
+    assert!(drawing.text.contains("drill hole \\(tool diameter\\)"), "the legend row is written");
 }
 
 #[test]
