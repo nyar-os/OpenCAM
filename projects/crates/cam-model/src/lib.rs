@@ -22,6 +22,9 @@
 //! * a generic absolute-millimetre G-code writer (`G21 G90 G17 G94`) including
 //!   `G81`/`G83` drilling cycles, optional program number, line numbers and
 //!   coolant (`M8`/`M7`/`M9`);
+//! * G-code import of the absolute-millimetre `G0`/`G1`/`G2`/`G3` move subset
+//!   into one `engrave` operation per cutting run, with a loss report for
+//!   everything the reader dropped;
 //! * rectangular and circular drill patterns, and material-based spindle and
 //!   feed recommendations;
 //! * ASCII DXF import of 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE`
@@ -70,7 +73,11 @@ pub use crate::{
     feeds::{
         DEFAULT_FLUTES, FeedsReport, FeedsRequest, MATERIALS, MAX_SPINDLE, MIN_FEED, MIN_SPINDLE, suggest as suggest_feeds,
     },
-    gcode::{PostOptions, render as render_gcode, render_with_post as render_gcode_with_post},
+    gcode::{
+        DEFAULT_GCODE_DEPTH, DEFAULT_GCODE_TOLERANCE, GCODE_IMPORT_FORMAT, GCODE_IMPORT_VERSION, GcodeImport,
+        GcodeImportReport, GcodeImportRequest, GcodeLoss, PostOptions, import as import_gcode, render as render_gcode,
+        render_with_post as render_gcode_with_post,
+    },
     library::{LIBRARY_FORMAT, LIBRARY_VERSION, ToolEntry, ToolLibrary, ToolTableReport},
     model::{
         CamDocument, FORMAT, Hole, HolePattern, Island, LeadSettings, Operation, OperationKind, PathPoint, Point, Stock,
@@ -126,6 +133,7 @@ pub const CAPABILITIES_JSON: &str = r#"{
   "io": {
     "ocam": "supported",
     "gcode": "supported",
+    "gcodeImport": "supported",
     "json": "supported",
     "csv": "supported",
     "md": "supported",

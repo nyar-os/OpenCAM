@@ -341,6 +341,30 @@ importCommand
             return 0;
         }),
     );
+importCommand
+    .command('gcode', 'cli.cmd.import-gcode')
+    .option('--from <program.nc>', 'cli.opt.from')
+    .option('--depth <mm>', 'cli.opt.depth')
+    .option('--stepdown <mm>', 'cli.opt.stepdown')
+    .option('--tolerance <mm>', 'cli.opt.tolerance')
+    .actionCtx(async (options, _args, ctx) =>
+        guard(ctx, async () => {
+            const file = positional(ctx, options, 'import gcode <file> --from <program.nc>');
+            const depth = number(ctx, options, '--depth');
+            const stepdown = number(ctx, options, '--stepdown');
+            const tolerance = number(ctx, options, '--tolerance');
+            print(
+                await app.importGcode({
+                    path: file,
+                    source: required(ctx, options, '--from'),
+                    ...(depth === undefined ? {} : { depth }),
+                    ...(stepdown === undefined ? {} : { stepdown }),
+                    ...(tolerance === undefined ? {} : { tolerance }),
+                }),
+            );
+            return 0;
+        }),
+    );
 
 const toolCommand = cli.command('tool', 'cli.cmd.tool');
 toolCommand

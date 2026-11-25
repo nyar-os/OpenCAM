@@ -40,6 +40,8 @@ export const errorCodes = [
     'import/invalid',
     'import/dxf-malformed-group',
     'import/dxf-malformed-entity',
+    'import/gcode-unsupported-mode',
+    'import/gcode-malformed-line',
     'export/invalid',
     'estimate/invalid',
     'post/invalid',

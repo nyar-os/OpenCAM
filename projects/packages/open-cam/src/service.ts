@@ -20,6 +20,8 @@ import type {
     ExportReport,
     FeedsReport,
     FeedsRequest,
+    GcodeImportReport,
+    GcodeImportRequest,
     OperationDuplicateRequest,
     OperationListReport,
     OperationReorderReport,
@@ -99,6 +101,11 @@ export function open(path: string): DocumentSummary {
 /** Imports an ASCII DXF drawing into a new document and returns the report. */
 export function importDxf(path: string, request: Omit<DxfImportRequest, 'path'>): DxfImportReport {
     return decode<DxfImportReport>(() => binding('import.dxf').import_dxf(path, JSON.stringify(request)));
+}
+
+/** Imports the supported G-code subset into a new document and returns the report. */
+export function importGcode(path: string, request: Omit<GcodeImportRequest, 'path'>): GcodeImportReport {
+    return decode<GcodeImportReport>(() => binding('import.gcode').import_gcode(path, JSON.stringify(request)));
 }
 
 /** Writes a document to `target`, or in place when `target` is undefined. */

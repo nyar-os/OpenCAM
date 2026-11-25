@@ -619,7 +619,7 @@ fn build_document(parsed: &[ParsedEntity], request: &DxfImportRequest) -> CamDoc
     document
 }
 
-fn engrave_tool() -> Tool {
+pub(crate) fn engrave_tool() -> Tool {
     Tool {
         id: DEFAULT_ENGRAVE_TOOL_ID.to_string(),
         name: "engrave".to_string(),
@@ -643,14 +643,14 @@ fn arc_sweep(start: f64, end: f64) -> f64 {
     sweep.to_radians()
 }
 
-fn arc_segments(radius: f64, sweep: f64, tolerance: f64) -> usize {
+pub(crate) fn arc_segments(radius: f64, sweep: f64, tolerance: f64) -> usize {
     let ratio = (tolerance / radius).clamp(0.0, 1.0);
     let step = if ratio >= 1.0 { PI } else { 2.0 * (1.0 - ratio).acos() };
     let count = (sweep / step.max(1e-9)).ceil();
     (count as usize).clamp(1, MAX_ARC_SEGMENTS)
 }
 
-fn remove_adjacent_duplicates(points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+pub(crate) fn remove_adjacent_duplicates(points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
     let mut result: Vec<(f64, f64)> = Vec::with_capacity(points.len());
     for point in points {
         let duplicate = match result.last() {
@@ -664,13 +664,13 @@ fn remove_adjacent_duplicates(points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
     result
 }
 
-fn coincident(left: (f64, f64), right: (f64, f64)) -> bool {
+pub(crate) fn coincident(left: (f64, f64), right: (f64, f64)) -> bool {
     let dx = right.0 - left.0;
     let dy = right.1 - left.1;
     dx * dx + dy * dy <= MERGE_EPSILON * MERGE_EPSILON
 }
 
-fn clean(value: f64) -> f64 {
+pub(crate) fn clean(value: f64) -> f64 {
     value + 0.0
 }
 

@@ -17,6 +17,7 @@ export interface NativeBinding {
     capabilities(): string;
     create(path: string): string;
     import_dxf(path: string, requestJson: string): string;
+    import_gcode(path: string, requestJson: string): string;
     open(path: string): string;
     save(path: string, target?: string): string;
     stock_set(path: string, requestJson: string): string;

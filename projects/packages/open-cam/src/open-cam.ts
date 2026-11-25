@@ -14,6 +14,8 @@ import type {
     DxfImportRequest,
     FeedsReport,
     FeedsRequest,
+    GcodeImportReport,
+    GcodeImportRequest,
     OpenCAMCapabilities,
     OpenCAMOptions,
 } from './types.js';
@@ -67,6 +69,27 @@ export class OpenCAM {
         assertPath(request.path);
         assertPath(request.source);
         return service.importDxf(request.path, {
+            source: request.source,
+            depth: request.depth,
+            stepdown: request.stepdown,
+            tolerance: request.tolerance,
+        });
+    }
+
+    /**
+     * Imports the supported G-code subset into a new document at `request.path`.
+     *
+     * Absolute millimetre `G0`/`G1`/`G2`/`G3` moves become one `engrave`
+     * operation per cutting run; returns the import report, including the
+     * losses of cycles, radius arcs and unknown words. Inch or incremental
+     * modes fail with `import/gcode-unsupported-mode`. The new document keeps
+     * revision `0`; open it with {@link open} to edit it.
+     */
+    async importGcode(request: GcodeImportRequest): Promise<GcodeImportReport> {
+        this.assertActive();
+        assertPath(request.path);
+        assertPath(request.source);
+        return service.importGcode(request.path, {
             source: request.source,
             depth: request.depth,
             stepdown: request.stepdown,

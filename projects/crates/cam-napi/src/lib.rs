@@ -14,9 +14,9 @@
 use std::path::Path;
 
 use cam_model::{
-    CamError, DxfImportRequest, EstimateRequest, ExportFormat, FeedsRequest, Hole, HolePattern, Island, LeadSettings, OpenCam,
-    Operation, OperationDuplicate, OperationKind, OperationReorder, OperationUpdate, PathPoint, PostOptions, Stock,
-    TabSettings, Tool,
+    CamError, DxfImportRequest, EstimateRequest, ExportFormat, FeedsRequest, GcodeImportRequest, Hole, HolePattern, Island,
+    LeadSettings, OpenCam, Operation, OperationDuplicate, OperationKind, OperationReorder, OperationUpdate, PathPoint,
+    PostOptions, Stock, TabSettings, Tool,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -125,6 +125,23 @@ fn import_dxf(ctx: CallContext) -> Result<JsValue> {
     let mut session = OpenCam::new();
     let report = session
         .import_dxf(Path::new(&source), Path::new(&path), &DxfImportRequest::new(depth, stepdown, tolerance))
+        .map_err(fail)?;
+    respond(&ctx, &report)
+}
+
+/// Imports the supported G-code subset into a new document and returns the report.
+#[function]
+fn import_gcode(ctx: CallContext) -> Result<JsValue> {
+    let path = text(&ctx, 0)?;
+    let request = object(&ctx, 1)?;
+    let source = text_field(&request, "source")?;
+    let defaults = GcodeImportRequest::default();
+    let depth = number_field(&request, "depth")?.unwrap_or(defaults.depth);
+    let stepdown = number_field(&request, "stepdown")?.unwrap_or(depth);
+    let tolerance = number_field(&request, "tolerance")?.unwrap_or(defaults.tolerance);
+    let mut session = OpenCam::new();
+    let report = session
+        .import_gcode(Path::new(&source), Path::new(&path), &GcodeImportRequest::new(depth, stepdown, tolerance))
         .map_err(fail)?;
     respond(&ctx, &report)
 }
@@ -568,6 +585,7 @@ register_module![
     capabilities,
     create,
     import_dxf,
+    import_gcode,
     open,
     save,
     stock_set,

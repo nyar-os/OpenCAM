@@ -19,7 +19,7 @@ use crate::{
     estimate::{self, CycleTimeReport, EstimateRequest},
     export::{markdown, segments_csv, write_atomic},
     feeds::{self, FeedsReport, FeedsRequest},
-    gcode::{self, PostOptions},
+    gcode::{self, GCODE_IMPORT_FORMAT, GCODE_IMPORT_VERSION, GcodeImport, GcodeImportReport, GcodeImportRequest, PostOptions},
     library::{self, ToolLibrary, ToolTableReport},
     model::{CamDocument, Operation, Stock, Tool, UNITS},
     operation_delete,
@@ -269,6 +269,63 @@ impl OpenCam {
             depth: request.depth,
             stepdown: request.stepdown,
             entity_count,
+            operation_count,
+            skipped_count,
+            losses,
+            document: self.summary()?,
+        })
+    }
+
+    /// Imports the supported G-code subset into a new document at `target`.
+    ///
+    /// `source` must be an absolute millimetre program using `G0`, `G1`, `G2`
+    /// and `G3`. Every maximal cutting run between rapids becomes one
+    /// `engrave` operation that references a fixed `engrave` tool; arcs are
+    /// flattened with the chord tolerance of `request`. Z heights, feeds and
+    /// tool numbers are ignored. The stock spans the translated cutting
+    /// bounding box (the minimum X and Y move to the origin) and is at least
+    /// `1 × 1` mm, with `max(bbox depth, request depth) + 5` mm of height. The
+    /// new document keeps revision `0`, exactly like [`Self::create`]. An
+    /// existing `target` reports `file/exists`; a coordinate mode the reader
+    /// cannot honour (`G20`, `G91`, `G92`, …) reports
+    /// `import/gcode-unsupported-mode` and a malformed block reports
+    /// `import/gcode-malformed-line`, both with a line number. Canned cycles,
+    /// radius-form arcs and unknown words never fail the import: they appear
+    /// in the report's loss list. A rejected candidate is never written.
+    pub fn import_gcode(
+        &mut self,
+        source: &Path,
+        target: &Path,
+        request: &GcodeImportRequest,
+    ) -> Result<GcodeImportReport, CamError> {
+        if target.exists() {
+            return Err(CamError::new("file/exists", format!("`{}` already exists", target.display())));
+        }
+        let text = fs::read_to_string(source)
+            .map_err(|error| CamError::new("io/read", format!("cannot read `{}`: {error}", source.display())))?;
+        let GcodeImport { document, line_count, move_count, arc_count, skipped_count, losses } = gcode::import(&text, request)?;
+        let validation = validate::validate(&document);
+        if let Some(error) = validate::first_error(&validation) {
+            return Err(error);
+        }
+        let operation_count = document.operations.len();
+        let serialized =
+            serde_json::to_string_pretty(&document).map_err(|error| CamError::new("document/serialize", error.to_string()))?;
+        write_atomic(target, &serialized)?;
+        self.path = Some(target.to_path_buf());
+        self.document = Some(document);
+        Ok(GcodeImportReport {
+            format: GCODE_IMPORT_FORMAT.to_string(),
+            version: GCODE_IMPORT_VERSION,
+            units: UNITS.to_string(),
+            source: source.display().to_string(),
+            path: target.display().to_string(),
+            tolerance: request.tolerance,
+            depth: request.depth,
+            stepdown: request.stepdown,
+            line_count,
+            move_count,
+            arc_count,
             operation_count,
             skipped_count,
             losses,

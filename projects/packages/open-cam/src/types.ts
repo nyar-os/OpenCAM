@@ -603,6 +603,61 @@ export interface DxfImportReport {
     readonly document: DocumentSummary;
 }
 
+/** One G-code line or word that the importer did not convert. */
+export interface GcodeLoss {
+    /** Stable loss code, for example `import/gcode-unsupported-gcode`. */
+    readonly code: string;
+    /** Word that caused the loss, for example `G81` or `M98`. */
+    readonly word: string;
+    /** 1-based line of the program the word appeared on. */
+    readonly line: number;
+    /** Human readable explanation. */
+    readonly message: string;
+}
+
+/** Request of `importGcode()`. */
+export interface GcodeImportRequest {
+    /** Document to create. It must not exist. */
+    readonly path: string;
+    /** G-code program to read. */
+    readonly source: string;
+    /** Cut depth of every imported operation, in millimetres. Defaults to `1`. */
+    readonly depth?: number;
+    /** Maximum depth removed per Z pass, in millimetres. Defaults to `depth`. */
+    readonly stepdown?: number;
+    /** Maximum chord sagitta when flattening arcs, in millimetres. Defaults to `0.05`. */
+    readonly tolerance?: number;
+}
+
+/** Result of `importGcode()`. */
+export interface GcodeImportReport {
+    readonly format: string;
+    readonly version: number;
+    /** Declared document unit system, always `mm`; `G20` fails instead of converting. */
+    readonly units: string;
+    /** G-code program that was read. */
+    readonly source: string;
+    /** Document that was written. */
+    readonly path: string;
+    /** Chord sagitta tolerance used to flatten arcs. */
+    readonly tolerance: number;
+    readonly depth: number;
+    readonly stepdown: number;
+    /** Total number of lines read, including blank and comment lines. */
+    readonly lineCount: number;
+    /** Cutting moves converted into path points. */
+    readonly moveCount: number;
+    /** Subset of `moveCount` that were `G2`/`G3` arcs. */
+    readonly arcCount: number;
+    /** Number of engrave operations in the written document. */
+    readonly operationCount: number;
+    /** Number of lines skipped as cycles, radius arcs, unknown words or degenerate runs. */
+    readonly skippedCount: number;
+    /** Skipped lines and runs, in program order. */
+    readonly losses: readonly GcodeLoss[];
+    readonly document: DocumentSummary;
+}
+
 /** Full report returned by `report()`. */
 export interface Report {
     readonly format: string;
