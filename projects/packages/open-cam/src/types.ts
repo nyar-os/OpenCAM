@@ -145,12 +145,14 @@ export interface PathPoint {
     readonly y: number;
 }
 
-/** One rectangular island left standing inside a pocket. */
+/** One island left standing inside a pocket. */
 export interface Island {
     readonly x: number;
     readonly y: number;
     readonly width: number;
     readonly height: number;
+    /** Island outline; absent means `rect`. A `circle` uses `width` as its diameter and needs `height` equal to `width`. */
+    readonly shape?: 'rect' | 'circle';
 }
 
 /** Holding tabs left standing along a `contour` profile. */

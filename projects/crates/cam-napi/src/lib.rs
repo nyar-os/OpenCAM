@@ -314,12 +314,18 @@ fn operation_add(ctx: CallContext) -> Result<JsValue> {
     if let Some(Value::Array(islands)) = request.get("islands") {
         let mut parsed = Vec::with_capacity(islands.len());
         for island in islands {
-            parsed.push(Island::new(
-                required_number_field(island, "x")?,
-                required_number_field(island, "y")?,
-                required_number_field(island, "width")?,
-                required_number_field(island, "height")?,
-            ));
+            let shape = match island.get("shape") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(value)) => Some(value.clone()),
+                Some(_) => return Err(argument_error("`island.shape` must be a string")),
+            };
+            parsed.push(Island {
+                x: required_number_field(island, "x")?,
+                y: required_number_field(island, "y")?,
+                width: required_number_field(island, "width")?,
+                height: required_number_field(island, "height")?,
+                shape,
+            });
         }
         operation.islands = parsed;
     }

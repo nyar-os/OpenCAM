@@ -263,11 +263,13 @@ impl PathPoint {
     }
 }
 
-/// One rectangular island left standing inside a pocket.
+/// One island left standing inside a pocket.
 ///
-/// Coordinates use the same frame as the pocket and are millimetres. An island
-/// occupies `x … x + width` along X and `y … y + height` along Y.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Coordinates use the same frame as the pocket and are millimetres. A `rect`
+/// island (the default when `shape` is absent) occupies `x … x + width` along
+/// X and `y … y + height` along Y. A `circle` island is a disc of diameter
+/// `width` centred in that bounding box and requires `height` equal to `width`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Island {
     /// Lower-left corner X.
@@ -278,12 +280,15 @@ pub struct Island {
     pub width: f64,
     /// Island size along Y.
     pub height: f64,
+    /// Island outline; absent means `rect`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<String>,
 }
 
 impl Island {
-    /// Creates an island from its lower-left corner and size.
+    /// Creates a rectangular island from its lower-left corner and size.
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self { x, y, width, height, shape: None }
     }
 }
 

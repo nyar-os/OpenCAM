@@ -276,7 +276,17 @@ pub fn export(document: &CamDocument) -> String {
             OperationKind::Contour | OperationKind::Pocket => {
                 outline(&mut text, &layer, operation);
                 for island in &operation.islands {
-                    rectangle(&mut text, &layer, island.x, island.y, island.width, island.height);
+                    if island.shape.as_deref() == Some("circle") {
+                        circle(
+                            &mut text,
+                            &layer,
+                            (island.x + island.width / 2.0, island.y + island.height / 2.0),
+                            island.width / 2.0,
+                        );
+                    }
+                    else {
+                        rectangle(&mut text, &layer, island.x, island.y, island.width, island.height);
+                    }
                 }
             }
             OperationKind::Drill => {

@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     CamError,
-    model::{CamDocument, FORMAT, HolePattern, Operation, OperationKind, TabSettings, Tool, UNITS, VERSION},
+    model::{CamDocument, FORMAT, HolePattern, Island, Operation, OperationKind, TabSettings, Tool, UNITS, VERSION},
 };
 
 /// Severity of one finding.
@@ -698,20 +698,38 @@ fn check_no_islands(operation: &Operation, issues: &mut Vec<Issue>) {
 }
 
 fn check_islands(operation: &Operation, tool: &Tool, issues: &mut Vec<Issue>) {
-    let mut expanded = Vec::with_capacity(operation.islands.len());
+    let radius = tool.radius();
+    let mut expanded: Vec<(usize, KeptOut)> = Vec::with_capacity(operation.islands.len());
     for (index, island) in operation.islands.iter().enumerate() {
+        let circle = match island.shape.as_deref() {
+            None | Some("rect") => false,
+            Some("circle") => true,
+            Some(other) => {
+                issues.push(Issue::error(
+                    "operation/island-invalid",
+                    format!(
+                        "operation `{}` island {} has shape `{other}`; only `rect` or `circle` is supported",
+                        operation.id, index
+                    ),
+                ));
+                continue;
+            }
+        };
         let numeric = island.x.is_finite()
             && island.y.is_finite()
             && island.width.is_finite()
             && island.height.is_finite()
             && island.width > 0.0
-            && island.height > 0.0;
+            && island.height > 0.0
+            && (!circle || (island.width - island.height).abs() <= EPSILON);
         if !numeric {
             issues.push(Issue::error(
                 "operation/island-invalid",
                 format!(
-                    "operation `{}` island {} needs finite coordinates and a positive width and height",
-                    operation.id, index
+                    "operation `{}` island {} needs finite coordinates and a positive {}",
+                    operation.id,
+                    index,
+                    if circle { "diameter with `height` equal to `width`" } else { "width and height" }
                 ),
             ));
             continue;
@@ -732,16 +750,16 @@ fn check_islands(operation: &Operation, tool: &Tool, issues: &mut Vec<Issue>) {
             continue;
         }
 
-        let radius = tool.radius();
         let inner_x0 = operation.x + radius;
         let inner_y0 = operation.y + radius;
         let inner_x1 = operation.x + operation.width - radius;
         let inner_y1 = operation.y + operation.height - radius;
-        let x0 = island.x - radius;
-        let y0 = island.y - radius;
-        let x1 = island.x + island.width + radius;
-        let y1 = island.y + island.height + radius;
-        if x0 < inner_x0 - EPSILON || y0 < inner_y0 - EPSILON || x1 > inner_x1 + EPSILON || y1 > inner_y1 + EPSILON {
+        let outline = KeptOut::new(island, radius);
+        if outline.x0 < inner_x0 - EPSILON
+            || outline.y0 < inner_y0 - EPSILON
+            || outline.x1 > inner_x1 + EPSILON
+            || outline.y1 > inner_y1 + EPSILON
+        {
             issues.push(Issue::error(
                 "operation/island-too-close",
                 format!(
@@ -751,14 +769,12 @@ fn check_islands(operation: &Operation, tool: &Tool, issues: &mut Vec<Issue>) {
             ));
             continue;
         }
-        expanded.push((index, x0, y0, x1, y1));
+        expanded.push((index, outline));
     }
 
-    for (position, &(first_index, ax0, ay0, ax1, ay1)) in expanded.iter().enumerate() {
-        for &(second_index, bx0, by0, bx1, by1) in &expanded[position + 1..] {
-            let overlap_x = ax1.min(bx1) - ax0.max(bx0);
-            let overlap_y = ay1.min(by1) - ay0.max(by0);
-            if overlap_x > EPSILON && overlap_y > EPSILON {
+    for (position, (first_index, first)) in expanded.iter().enumerate() {
+        for (second_index, second) in &expanded[position + 1..] {
+            if first.overlaps(second) {
                 issues.push(Issue::error(
                     "operation/island-overlap",
                     format!(
@@ -769,6 +785,61 @@ fn check_islands(operation: &Operation, tool: &Tool, issues: &mut Vec<Issue>) {
             }
         }
     }
+}
+
+/// The cutter keep-out of one island: its outline expanded by the cutter
+/// radius, plus the centre and expanded radius for a circle.
+struct KeptOut {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+    circle: Option<(f64, f64, f64)>,
+}
+
+impl KeptOut {
+    fn new(island: &Island, radius: f64) -> Self {
+        if island.shape.as_deref() == Some("circle") {
+            let centre_x = island.x + island.width / 2.0;
+            let centre_y = island.y + island.height / 2.0;
+            let reach = island.width / 2.0 + radius;
+            Self {
+                x0: centre_x - reach,
+                y0: centre_y - reach,
+                x1: centre_x + reach,
+                y1: centre_y + reach,
+                circle: Some((centre_x, centre_y, reach)),
+            }
+        }
+        else {
+            Self {
+                x0: island.x - radius,
+                y0: island.y - radius,
+                x1: island.x + island.width + radius,
+                y1: island.y + island.height + radius,
+                circle: None,
+            }
+        }
+    }
+
+    fn overlaps(&self, other: &Self) -> bool {
+        match (self.circle, other.circle) {
+            (None, None) => {
+                let overlap_x = self.x1.min(other.x1) - self.x0.max(other.x0);
+                let overlap_y = self.y1.min(other.y1) - self.y0.max(other.y0);
+                overlap_x > EPSILON && overlap_y > EPSILON
+            }
+            (Some((ax, ay, ar)), Some((bx, by, br))) => (ax - bx).hypot(ay - by) < ar + br - EPSILON,
+            (Some((cx, cy, cr)), None) => overlaps_circle_rect(cx, cy, cr, other),
+            (None, Some((cx, cy, cr))) => overlaps_circle_rect(cx, cy, cr, self),
+        }
+    }
+}
+
+fn overlaps_circle_rect(centre_x: f64, centre_y: f64, reach: f64, rect: &KeptOut) -> bool {
+    let dx = (rect.x0 - centre_x).max(0.0).max(centre_x - rect.x1);
+    let dy = (rect.y0 - centre_y).max(0.0).max(centre_y - rect.y1);
+    dx.hypot(dy) < reach - EPSILON
 }
 
 fn check_tool_entry(tool: &Tool, issues: &mut Vec<Issue>) {

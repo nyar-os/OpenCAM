@@ -202,6 +202,15 @@ function parsePattern(raw: string): HolePattern {
 function parseIslands(raw: readonly string[]): Island[] {
     return raw.map((entry) => {
         const parts = entry.split(',');
+        if (parts[0] === 'circle') {
+            const x = Number(parts[1]);
+            const y = Number(parts[2]);
+            const diameter = Number(parts[3]);
+            if (parts.length !== 4 || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(diameter)) {
+                throw new OpenCAMError('cli/invalid-number', `island \`${entry}\` must be a \`circle,x,y,diameter\` quadruple`);
+            }
+            return { x, y, width: diameter, height: diameter, shape: 'circle' as const };
+        }
         const x = Number(parts[0]);
         const y = Number(parts[1]);
         const width = Number(parts[2]);
@@ -436,7 +445,7 @@ operationCommand
     .option('--pattern <grid,rows,columns,spacingX,spacingY|circular,count,radius>', 'cli.opt.pattern')
     .option('--peck <mm>', 'cli.opt.peck')
     .option('--dwell <seconds>', 'cli.opt.dwell')
-    .option('--island <x,y,w,h>...', 'cli.opt.island')
+    .option('--island <x,y,w,h|circle,x,y,d>...', 'cli.opt.island')
     .option('--path <x,y;x,y>', 'cli.opt.path')
     .option('--tabs <count,width,height>', 'cli.opt.tabs')
     .option('--lead <radius,cw|ccw>', 'cli.opt.lead')

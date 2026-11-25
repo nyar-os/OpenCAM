@@ -897,9 +897,26 @@ fn finish_circle(centre: &Point, radius: f64, tool: &Tool, z: f64, builder: &mut
 }
 
 /// X intervals of one raster line that stay outside every island keep-out zone.
+/// A circle island blocks the chord of its keep-out circle on this line.
 fn island_keep_out(operation: &Operation, radius: f64, y: f64, x0: f64, x1: f64) -> Vec<(f64, f64)> {
     let mut blocked = Vec::new();
     for island in &operation.islands {
+        if island.shape.as_deref() == Some("circle") {
+            let centre_x = island.x + island.width / 2.0;
+            let centre_y = island.y + island.height / 2.0;
+            let reach = island.width / 2.0 + radius;
+            let dy = y - centre_y;
+            if dy.abs() >= reach - TOLERANCE {
+                continue;
+            }
+            let half = (reach * reach - dy * dy).max(0.0).sqrt();
+            let low = (centre_x - half).max(x0);
+            let high = (centre_x + half).min(x1);
+            if high - low > TOLERANCE {
+                blocked.push((low, high));
+            }
+            continue;
+        }
         if y < island.y - radius - TOLERANCE || y > island.y + island.height + radius + TOLERANCE {
             continue;
         }

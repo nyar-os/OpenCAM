@@ -59,7 +59,7 @@
             "material": "material name: aluminium, brass, steel, stainless, plastic or wood",
             "peck": "peck depth for drilling in millimetres",
             "dwell": "dwell at the hole bottom in seconds",
-            "island": "island rectangle as `x,y,w,h`; repeat for several islands",
+            "island": "island as `x,y,w,h` or `circle,x,y,diameter`; repeat for several islands",
             "path": "engrave or contour path as `x,y;x,y`",
             "tabs": "contour tabs as `count,width,height`",
             "lead": "lead-in/out as `radius,cw|ccw`",
