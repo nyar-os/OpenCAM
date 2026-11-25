@@ -72,6 +72,7 @@
             "line-numbers": "prefix every program line with a sequential `N` word",
             "line-increment": "distance between two line numbers (default 10)",
             "coolant": "coolant mode: off, flood (`M8`) or mist (`M7`)",
+            "post": "machine dialect: generic (default), grbl, mach3 or fanuc",
             "apply": "reorder and save the document instead of only printing the plan",
             "out": "write the result to this path (SVG and PDF drawings print to stdout when omitted)",
             "from": "file to import (a tool library, an ASCII DXF drawing or a G-code program)",

@@ -360,6 +360,26 @@ test('gcode post options add a program number, line numbers and coolant', async 
             assert.equal(error.code, 'post/invalid');
             return true;
         });
+
+        const grbl = await document.gcode({ post: 'grbl' });
+        assert.equal(grbl.startsWith('%'), false, 'GRBL has no program delimiter');
+        assert.equal(grbl.includes('M6'), false, 'GRBL has no tool change');
+        assert.ok(grbl.includes('G21 G90 G17\n'));
+
+        const fanuc = await document.gcode({ post: 'fanuc', programNumber: 7 });
+        assert.equal(fanuc.split('\n')[1], 'O0007');
+        assert.ok(fanuc.includes('G21 G90 G17 G94 G40 G49 G80'));
+
+        await assert.rejects(document.gcode({ post: 'fanuc' }), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'post/invalid');
+            return true;
+        });
+        await assert.rejects(document.gcode({ post: 'grbl', programNumber: 1 }), (error: unknown) => {
+            assert.ok(isOpenCAMError(error));
+            assert.equal(error.code, 'post/invalid');
+            return true;
+        });
         assert.equal((await document.validate()).ok, true);
     } finally {
         await session.dispose();

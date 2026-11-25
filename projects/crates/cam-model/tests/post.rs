@@ -124,7 +124,13 @@ fn invalid_post_options_report_post_invalid() {
 #[test]
 fn post_options_do_not_change_a_single_move() {
     let plain = render_gcode(&document()).expect("gcode");
-    let post = PostOptions { program_number: Some(12), line_numbers: true, line_increment: 10, coolant: "flood".to_string() };
+    let post = PostOptions {
+        post: "generic".to_string(),
+        program_number: Some(12),
+        line_numbers: true,
+        line_increment: 10,
+        coolant: "flood".to_string(),
+    };
     let decorated = render_gcode_with_post(&document(), &post).expect("gcode");
     let body = |text: &str| -> Vec<String> {
         text.lines()
@@ -139,8 +145,129 @@ fn post_options_do_not_change_a_single_move() {
 
 #[test]
 fn post_output_is_deterministic() {
-    let post = PostOptions { program_number: Some(42), line_numbers: true, line_increment: 2, coolant: "mist".to_string() };
+    let post = PostOptions {
+        post: "generic".to_string(),
+        program_number: Some(42),
+        line_numbers: true,
+        line_increment: 2,
+        coolant: "mist".to_string(),
+    };
     let first = render_gcode_with_post(&document(), &post).expect("gcode");
     let second = render_gcode_with_post(&document(), &post).expect("gcode");
     assert_eq!(first, second);
+}
+
+#[test]
+fn grbl_omits_the_program_wrappers_and_tool_change() {
+    let post = PostOptions { post: "grbl".to_string(), ..PostOptions::default() };
+    let program = render_gcode_with_post(&document(), &post).expect("gcode");
+    assert!(!program.starts_with('%'), "GRBL has no `%` delimiter");
+    assert!(!program.ends_with("%\n"), "GRBL has no trailing `%`");
+    assert!(!program.contains("\nO"), "GRBL has no program number");
+    assert!(!program.contains("M6"), "GRBL has no automatic tool change");
+    assert!(program.contains("(tool t6 T3 diameter 6)"));
+    assert!(program.contains("G21 G90 G17\n"));
+    assert!(!program.contains("G94"));
+    assert_eq!(program.matches("S12000 M3").count(), 2, "every operation still starts the spindle");
+    assert!(program.ends_with("M30\n"));
+}
+
+#[test]
+fn grbl_expands_canned_cycles_into_moves() {
+    let post = PostOptions { post: "grbl".to_string(), ..PostOptions::default() };
+    let program = render_gcode_with_post(&document(), &post).expect("gcode");
+    assert!(!program.contains("G81"), "no canned cycle survives");
+    assert!(!program.contains("G80"), "no cycle is cancelled");
+    assert!(program.contains("G0 X10 Y10 Z13"), "rapid to the hole at the clearance plane");
+    assert!(program.contains("G1 Z4 F300"), "plunge to the hole bottom at the plunge feed");
+}
+
+#[test]
+fn grbl_expands_peck_and_dwell() {
+    let mut peck = document();
+    peck.operations[0].peck = Some(2.0);
+    let post = PostOptions { post: "grbl".to_string(), ..PostOptions::default() };
+    let program = render_gcode_with_post(&peck, &post).expect("gcode");
+    assert_eq!(program.matches("G1 Z").count(), 5, "13 → 11 → 9 → 7 → 5 → 4 mm");
+    assert!(program.contains("G1 Z11 F300"));
+    assert!(program.contains("G1 Z9 F300"));
+    assert!(program.contains("G1 Z4 F300"));
+    assert!(program.contains("G0 Z13"));
+
+    let mut dwell = document();
+    dwell.operations[0].dwell = Some(1.5);
+    let program = render_gcode_with_post(&dwell, &post).expect("gcode");
+    assert!(program.contains("G1 Z4 F300"));
+    assert!(program.contains("G4 P1.5"), "the dwell is kept as a pause at the bottom");
+    assert!(!program.contains("G82"));
+}
+
+#[test]
+fn mach3_keeps_cycles_and_adds_a_safety_block() {
+    let post = PostOptions { post: "mach3".to_string(), ..PostOptions::default() };
+    let program = render_gcode_with_post(&document(), &post).expect("gcode");
+    assert!(program.starts_with("%\n"));
+    assert!(program.ends_with("%\n"));
+    assert!(program.contains("(Post: Mach3, absolute, XY plane)"));
+    assert!(program.contains("G21 G90 G17 G94 G40 G49 G80"));
+    assert!(program.contains("T3 M6"));
+    assert!(program.contains("G81 X10 Y10 Z4 R13 F300"));
+    assert!(program.contains("G80"));
+}
+
+#[test]
+fn fanuc_pads_the_program_number_and_requests_initial_level_retract() {
+    let post = PostOptions { post: "fanuc".to_string(), program_number: Some(7), ..PostOptions::default() };
+    let program = render_gcode_with_post(&document(), &post).expect("gcode");
+    assert_eq!(program.lines().nth(1), Some("O0007"), "a Fanuc program number is four digits");
+    assert!(program.contains("(Post: Fanuc, absolute, XY plane)"));
+    assert!(program.contains("G21 G90 G17 G94 G40 G49 G80"));
+    assert!(program.contains("G98 G81 X10 Y10 Z4 R13 F300"));
+    assert!(program.contains("T3 M6"));
+
+    let error = render_gcode_with_post(&document(), &PostOptions { post: "fanuc".to_string(), ..PostOptions::default() })
+        .expect_err("a Fanuc program needs an O number");
+    assert_eq!(error.code, "post/invalid");
+}
+
+#[test]
+fn dialects_reject_options_they_cannot_express() {
+    for post in [
+        PostOptions { post: "grbl".to_string(), program_number: Some(1), ..PostOptions::default() },
+        PostOptions { post: "grbl".to_string(), line_numbers: true, ..PostOptions::default() },
+        PostOptions { post: "mach3".to_string(), program_number: Some(1), ..PostOptions::default() },
+        PostOptions { post: "fanuc".to_string(), program_number: Some(10000), ..PostOptions::default() },
+        PostOptions { post: "haas".to_string(), ..PostOptions::default() },
+    ] {
+        let error = render_gcode_with_post(&document(), &post).expect_err("invalid post");
+        assert_eq!(error.code, "post/invalid", "post `{}` should be rejected", post.post);
+    }
+}
+
+#[test]
+fn mach3_changes_no_coordinate() {
+    let plain = render_gcode(&document()).expect("gcode");
+    let mach3 = render_gcode_with_post(&document(), &PostOptions { post: "mach3".to_string(), ..PostOptions::default() })
+        .expect("gcode");
+    let motion = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter(|line| line.starts_with("G0 ") || line.starts_with("G1 ") || line.starts_with("G8"))
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(motion(&plain), motion(&mach3));
+}
+
+#[test]
+fn each_dialect_is_deterministic() {
+    for post in ["generic", "grbl", "mach3", "fanuc"] {
+        let options = PostOptions {
+            post: post.to_string(),
+            program_number: if post == "fanuc" { Some(1) } else { None },
+            ..PostOptions::default()
+        };
+        let first = render_gcode_with_post(&document(), &options).expect("gcode");
+        let second = render_gcode_with_post(&document(), &options).expect("gcode");
+        assert_eq!(first, second, "post `{post}` is not deterministic");
+    }
 }

@@ -1,10 +1,11 @@
 //! G-code writer and importer.
 //!
-//! The writer emits a single, deterministic program: no timestamps, no machine
-//! probing and no vendor post-processor options. Every move comes from
-//! [`crate::toolpath`], so the program and the toolpath report cannot disagree.
-//! [`PostOptions`] changes only the text around those moves — a program number,
-//! line numbers and coolant — and never a coordinate, a feed or a cycle.
+//! The writer emits a single deterministic program per post. Every move comes
+//! from [`crate::toolpath`], so the program and the toolpath report cannot
+//! disagree. [`PostOptions`] selects a machine dialect and changes only the text
+//! around those moves — the header, the program number, line numbers, coolant
+//! and the way arcs and canned cycles are spelled — never a coordinate, a feed
+//! or a toolpath.
 //!
 //! The importer reads back the G0/G1/G2/G3 subset those programs use. Cutting
 //! moves between two rapids form one maximal run, every run becomes one
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     CamError,
     dxf::{self, DEFAULT_ENGRAVE_TOOL_ID, MIN_CIRCLE_SEGMENTS},
-    model::{CamDocument, Operation, OperationKind, PathPoint, Stock},
+    model::{CamDocument, Operation, OperationKind, PathPoint, Stock, Tool},
     session::{DEFAULT_STOCK, DocumentSummary},
     toolpath::{self, MoveKind, ToolpathReport},
 };
@@ -32,17 +33,21 @@ use crate::{
 /// Post options that change only the text of the program, never its moves.
 ///
 /// Omitted fields keep the defaults, so an empty request renders exactly the
-/// generic absolute-millimetre program. `programNumber` emits `O<n>` right
-/// after the leading `%`, `lineNumbers` prefixes every line between the two
-/// `%` lines with `N<n>` and `coolant` adds `M8` (`flood`) or `M7` (`mist`)
-/// after the spindle start of every operation and closes it with `M9`. Units
-/// and the `G90` absolute mode stay fixed; the writer never emits `G20`, `G91`
-/// or a vendor dialect.
+/// generic absolute-millimetre program. `post` selects the dialect: `generic`
+/// (default), `grbl`, `mach3` or `fanuc`. `programNumber` emits `O<n>` right
+/// after the leading `%`, `lineNumbers` prefixes every interior line with
+/// `N<n>` and `coolant` adds `M8` (`flood`) or `M7` (`mist`) after the spindle
+/// start of every operation and closes it with `M9`. Units `G21` and absolute
+/// mode `G90` stay fixed in every dialect; the writer never emits `G20` or
+/// `G91`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PostOptions {
+    /// Machine dialect: `generic` (default), `grbl`, `mach3` or `fanuc`.
+    pub post: String,
     /// Program number emitted as `O<n>` right after the leading `%`; `None`
-    /// emits no program-number line.
+    /// emits no program-number line. Required by `fanuc`, rejected by `grbl`
+    /// and `mach3`.
     pub program_number: Option<u32>,
     /// Prefixes every line between the two `%` lines with `N<n>`.
     pub line_numbers: bool,
@@ -54,7 +59,13 @@ pub struct PostOptions {
 
 impl Default for PostOptions {
     fn default() -> Self {
-        Self { program_number: None, line_numbers: false, line_increment: 10, coolant: "off".to_string() }
+        Self {
+            post: "generic".to_string(),
+            program_number: None,
+            line_numbers: false,
+            line_increment: 10,
+            coolant: "off".to_string(),
+        }
     }
 }
 
@@ -85,6 +96,25 @@ fn check_post(post: &PostOptions) -> Result<(), CamError> {
     if post.program_number == Some(0) {
         return Err(CamError::new("post/invalid", "program number must be greater than zero"));
     }
+    if !matches!(post.post.as_str(), "generic" | "grbl" | "mach3" | "fanuc") {
+        return Err(CamError::new(
+            "post/invalid",
+            format!("post `{}` is unknown; only `generic`, `grbl`, `mach3` or `fanuc` is supported", post.post),
+        ));
+    }
+    if matches!(post.post.as_str(), "grbl" | "mach3") && post.program_number.is_some() {
+        return Err(CamError::new("post/invalid", format!("post `{}` does not support a program number", post.post)));
+    }
+    if post.post == "grbl" && post.line_numbers {
+        return Err(CamError::new("post/invalid", "post `grbl` does not support line numbers"));
+    }
+    match (post.post.as_str(), post.program_number) {
+        ("fanuc", None) => return Err(CamError::new("post/invalid", "post `fanuc` requires a program number")),
+        ("fanuc", Some(number)) if number > 9999 => {
+            return Err(CamError::new("post/invalid", "a `fanuc` program number must be at most 9999"));
+        }
+        _ => {}
+    }
     if !matches!(post.coolant.as_str(), "off" | "flood" | "mist") {
         return Err(CamError::new(
             "post/invalid",
@@ -97,15 +127,20 @@ fn check_post(post: &PostOptions) -> Result<(), CamError> {
 fn render_with(document: &CamDocument, report: &ToolpathReport, post: &PostOptions) -> String {
     let safe_z = report.safe_z;
     let coolant = coolant_code(&post.coolant);
+    let dialect = post.post.as_str();
+    let grbl = dialect == "grbl";
+    let fanuc = dialect == "fanuc";
     let mut lines = Vec::new();
-    lines.push("%".to_string());
+    if !grbl {
+        lines.push("%".to_string());
+    }
     if let Some(number) = post.program_number {
-        lines.push(format!("O{number}"));
+        lines.push(if fanuc { format!("O{number:04}") } else { format!("O{number}") });
     }
     lines.push(format!("(OpenCAM {})", env!("CARGO_PKG_VERSION")));
     lines.push(format!("(Units: {})", document.units));
-    lines.push("(Post: generic mill, absolute, XY plane)".to_string());
-    lines.push("G21 G90 G17 G94".to_string());
+    lines.push(format!("(Post: {})", post_label(dialect)));
+    lines.push(header(dialect).to_string());
     lines.push(format!("G0 Z{}", number(safe_z)));
 
     for (index, operation) in document.operations.iter().enumerate() {
@@ -121,33 +156,46 @@ fn render_with(document: &CamDocument, report: &ToolpathReport, post: &PostOptio
             }
         }
         if let Some(tool) = tool {
-            lines.push(format!("T{} M6", tool.number));
+            if grbl {
+                lines.push(format!("(tool {} T{} diameter {})", tool.id, tool.number, number(tool.diameter)));
+            }
+            else {
+                lines.push(format!("T{} M6", tool.number));
+            }
             lines.push(format!("S{} M3", number(tool.spindle)));
             if let Some(code) = coolant {
                 lines.push(code.to_string());
             }
-            lines.push(format!("(tool {} diameter {})", tool.id, number(tool.diameter)));
+            if !grbl {
+                lines.push(format!("(tool {} diameter {})", tool.id, number(tool.diameter)));
+            }
         }
         lines.push(format!("G0 Z{}", number(safe_z)));
 
         if operation.kind == OperationKind::Drill {
-            let depth = number(document.stock.height - operation.depth);
-            let retract = number(safe_z);
-            let feed = number(tool.map_or(0.0, |tool| tool.plunge_feed));
-            for hole in operation.resolved_holes() {
-                let x = number(hole.x);
-                let y = number(hole.y);
-                match (operation.peck, operation.dwell) {
-                    (Some(peck), _) => {
-                        lines.push(format!("G83 X{x} Y{y} Z{depth} R{retract} Q{} F{feed}", number(peck)));
-                    }
-                    (None, Some(dwell)) => {
-                        lines.push(format!("G82 X{x} Y{y} Z{depth} R{retract} P{} F{feed}", number(dwell)));
-                    }
-                    (None, None) => lines.push(format!("G81 X{x} Y{y} Z{depth} R{retract} F{feed}")),
-                }
+            if grbl {
+                grbl_drill(&mut lines, operation, document.stock.height, safe_z, tool);
             }
-            lines.push("G80".to_string());
+            else {
+                let depth = number(document.stock.height - operation.depth);
+                let retract = number(safe_z);
+                let feed = number(tool.map_or(0.0, |tool| tool.plunge_feed));
+                let prefix = if fanuc { "G98 " } else { "" };
+                for hole in operation.resolved_holes() {
+                    let x = number(hole.x);
+                    let y = number(hole.y);
+                    match (operation.peck, operation.dwell) {
+                        (Some(peck), _) => {
+                            lines.push(format!("{prefix}G83 X{x} Y{y} Z{depth} R{retract} Q{} F{feed}", number(peck)));
+                        }
+                        (None, Some(dwell)) => {
+                            lines.push(format!("{prefix}G82 X{x} Y{y} Z{depth} R{retract} P{} F{feed}", number(dwell)));
+                        }
+                        (None, None) => lines.push(format!("{prefix}G81 X{x} Y{y} Z{depth} R{retract} F{feed}")),
+                    }
+                }
+                lines.push("G80".to_string());
+            }
         }
         else {
             for segment in &path.segments {
@@ -178,11 +226,66 @@ fn render_with(document: &CamDocument, report: &ToolpathReport, post: &PostOptio
 
     lines.push(format!("G0 Z{}", number(safe_z)));
     lines.push("M30".to_string());
-    lines.push("%".to_string());
+    if !grbl {
+        lines.push("%".to_string());
+    }
     if post.line_numbers {
         number_lines(&mut lines, post.line_increment);
     }
     lines.join("\n") + "\n"
+}
+
+/// Header line of one dialect; units `G21` and absolute mode `G90` never change.
+fn header(dialect: &str) -> &'static str {
+    match dialect {
+        "grbl" => "G21 G90 G17",
+        "mach3" | "fanuc" => "G21 G90 G17 G94 G40 G49 G80",
+        _ => "G21 G90 G17 G94",
+    }
+}
+
+/// Human-readable dialect name written in the header comment.
+fn post_label(dialect: &str) -> &'static str {
+    match dialect {
+        "grbl" => "GRBL, absolute, XY plane",
+        "mach3" => "Mach3, absolute, XY plane",
+        "fanuc" => "Fanuc, absolute, XY plane",
+        _ => "generic mill, absolute, XY plane",
+    }
+}
+
+/// Expands one drill operation into explicit moves for a GRBL controller.
+///
+/// GRBL has no canned cycles, so every hole becomes a rapid to the hole centre,
+/// the plunge (split into peck steps for `G83`), a dwell for `G82` and a rapid
+/// back to the clearance plane. The motion is the same the cycle performs.
+fn grbl_drill(lines: &mut Vec<String>, operation: &Operation, stock_height: f64, safe_z: f64, tool: Option<&Tool>) {
+    let depth = stock_height - operation.depth;
+    let feed = number(tool.map_or(0.0, |tool| tool.plunge_feed));
+    for hole in operation.resolved_holes() {
+        lines.push(format!("G0 X{} Y{} Z{}", number(hole.x), number(hole.y), number(safe_z)));
+        match (operation.peck, operation.dwell) {
+            (Some(peck), _) => {
+                let mut top = safe_z;
+                loop {
+                    let next = (top - peck).max(depth);
+                    lines.push(format!("G1 Z{} F{feed}", number(next)));
+                    if next <= depth {
+                        break;
+                    }
+                    lines.push(format!("G0 Z{}", number(safe_z)));
+                    lines.push(format!("G0 Z{}", number(next)));
+                    top = next;
+                }
+            }
+            (None, Some(dwell)) => {
+                lines.push(format!("G1 Z{} F{feed}", number(depth)));
+                lines.push(format!("G4 P{}", number(dwell)));
+            }
+            (None, None) => lines.push(format!("G1 Z{} F{feed}", number(depth))),
+        }
+        lines.push(format!("G0 Z{}", number(safe_z)));
+    }
 }
 
 /// Coolant command of one post option set; `None` emits no coolant line.

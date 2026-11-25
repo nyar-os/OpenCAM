@@ -424,11 +424,13 @@ export interface EstimateRequest {
 /**
  * Post options of `gcode()`; omitted fields keep the generic program.
  *
- * They change only the text around the moves: a program number, line numbers and
- * coolant. Units and absolute mode stay fixed, so the writer never emits `G20`,
- * `G91` or a vendor dialect.
+ * They change only the text around the moves: the dialect header, a program
+ * number, line numbers, coolant and how arcs and canned cycles are spelled.
+ * Units and absolute mode stay fixed, so the writer never emits `G20` or `G91`.
  */
 export interface PostOptions {
+    /** Machine dialect; `generic` when omitted. */
+    readonly post?: PostProcessor;
     /** Program number emitted as `O<n>` right after the leading `%`; omitted emits no line. */
     readonly programNumber?: number;
     /** Prefixes every line between the two `%` lines with `N<n>`; `false` when omitted. */
@@ -438,6 +440,9 @@ export interface PostOptions {
     /** Coolant mode; `off` when omitted. `flood` emits `M8`, `mist` emits `M7`, and both close with `M9`. */
     readonly coolant?: CoolantMode;
 }
+
+/** Machine dialect a G-code program is written for. */
+export type PostProcessor = 'generic' | 'grbl' | 'mach3' | 'fanuc';
 
 /** One tool group of a sequencing plan. */
 export interface SequenceGroup {

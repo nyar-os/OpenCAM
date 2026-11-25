@@ -32,6 +32,7 @@ import type {
     PocketShape,
     PocketStrategy,
     PostOptions,
+    PostProcessor,
     TabSettings,
 } from './types.js';
 
@@ -130,6 +131,13 @@ function drawingKind(value: string): DrawingKind {
         return value;
     }
     throw new OpenCAMError('cli/unknown-kind', `unknown drawing kind \`${value}\``);
+}
+
+function postProcessor(value: string): PostProcessor {
+    if (value === 'generic' || value === 'grbl' || value === 'mach3' || value === 'fanuc') {
+        return value;
+    }
+    throw new OpenCAMError('post/invalid', `unknown post \`${value}\`; only generic, grbl, mach3 or fanuc is supported`);
 }
 
 function operationKind(value: string): OperationKind {
@@ -709,6 +717,7 @@ cli
 
 cli
     .command('gcode', 'cli.cmd.gcode')
+    .option('--post <generic|grbl|mach3|fanuc>', 'cli.opt.post')
     .option('--out <program.nc>', 'cli.opt.out')
     .option('--program-number <n>', 'cli.opt.program-number')
     .option('--line-numbers', 'cli.opt.line-numbers')
@@ -721,7 +730,9 @@ cli
                 const programNumber = integer(ctx, options, '--program-number');
                 const lineIncrement = integer(ctx, options, '--line-increment');
                 const coolant = text(options, 'coolant');
+                const dialect = text(options, 'post');
                 const post: PostOptions = {
+                    ...(dialect === undefined ? {} : { post: postProcessor(dialect) }),
                     ...(programNumber === undefined ? {} : { programNumber }),
                     ...(flag(options, 'line-numbers') ? { lineNumbers: true } : {}),
                     ...(lineIncrement === undefined ? {} : { lineIncrement }),
