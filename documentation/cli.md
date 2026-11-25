@@ -619,9 +619,10 @@ never recomputed:
 - a two-column legend with 3 mm samples that names cutting moves, rapid moves,
   plunge/start points, drill rings, the island and tab markers when present, and
   one row per operation with its number, kind and id, and tool diameter;
-- an A4 landscape frame with a title block sized from its measured text (the
-  document id, revision, units, operation count, estimated time and stock size),
-  so no cell text crosses a vertical rule.
+- an A4 landscape frame with a title block measured and fitted per line (shrink
+  or wrap at a 1.5 mm font floor) for the document id, revision, units,
+  operation count, estimated time and stock size, so no cell text crosses a
+  vertical rule and the block keeps a 2 mm gap to the inner frame.
 
 Arc moves are drawn as polylines sampled at the engine's ring resolution
 (72 chords per turn) with the exact move endpoint, so the drawing matches the

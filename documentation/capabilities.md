@@ -368,8 +368,10 @@ The machine-readable version is printed by `open-cam capabilities` and by
     uses 3 mm samples and explains the cutting, rapid, plunge/start and drill
     symbols, adds island-outline and holding-tab rows only when the document has
     them, and names every operation with its number, kind, id and tool diameter.
-    The title block sizes each cell from its measured text, so no label crosses a
-    vertical rule; it carries the document id (file stem), revision, units,
+    The title block measures every line against its own cell, shrinks or wraps
+    it at a 1.5 mm font floor, and keeps the block inside the inner frame with a
+    2 mm gap below the last line, so no label crosses a vertical rule or the
+    frame; it carries the document id (file stem), revision, units,
     operation count, estimated time and stock size.
     SVG uses a millimetre `viewBox` with a 1040 × 735 px default size. PDF is one A4
     landscape page (842 × 595 pt) with Helvetica, `1 mm = 2.834646 pt`, fitted
@@ -388,8 +390,8 @@ The machine-readable version is printed by `open-cam capabilities` and by
     islands, the `engrave` polyline and a tool-diameter ring per drill hole —
     numbered by document order; `depth-map` draws only the cutting chains,
     groups them per Z level, shades each level from the full operation colour
-    to 35 % at the deepest level, labels every level `Z<depth>` and keeps the
-    operation legend; `operation-sheet` prints one table row per operation with
+    to 35 % at the deepest level, labels every level `Z<depth>` at a free spot so
+    labels never overlap and keeps the operation legend; `operation-sheet` prints one table row per operation with
     sequence, type and id, tool, diameter, depth, stepover, feed, spindle,
     estimated time and toolpath length, measured columns and right-aligned
     numbers; `stock-removal` draws the stepped section along the X centre line,
