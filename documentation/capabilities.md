@@ -43,6 +43,7 @@ The machine-readable version is printed by `open-cam capabilities` and by
 | operation reordering (final 0-based index, same-index no-op keeps the revision) | ✅ supported |
 | G-code post options (program number, line numbers, coolant `M8`/`M7`/`M9`) | ✅ supported |
 | DXF import, ASCII 2D `LINE`, `LWPOLYLINE`, `POLYLINE`, `ARC` and `CIRCLE` → one `engrave` operation each | ✅ supported |
+| G-code import, absolute-millimetre `G0`/`G1`/`G2`/`G3` subset → one `engrave` operation per cutting run | ✅ supported |
 | DXF export, ASCII `LINE`, `LWPOLYLINE` and `CIRCLE` of the stock, outlines, islands and drill holes | ✅ supported |
 | portable tool library (`open-cam-tools`) import and export | ✅ supported |
 | tool table query with per-tool operation usage | ✅ supported |
@@ -405,6 +406,39 @@ The machine-readable version is printed by `open-cam capabilities` and by
     so the same document always writes the same bytes. The output stays inside
     the importer's subset: an engrave-only drawing round-trips through
     `import dxf` with the same points and closed flags.
+29. **G-code import.** `import gcode` reads back the absolute-millimetre
+    `G0`/`G1`/`G2`/`G3` subset this writer emits, plus bare axis words that
+    continue the last motion mode. Every maximal run of consecutive cutting
+    moves between two rapids, tool changes or skipped lines becomes one
+    `engrave` operation that references the same fixed `engrave` tool as DXF
+    import; the operation id and name are `gcode-<n>` with the 1-based run
+    ordinal. Z heights and feeds are ignored, vertical plunges contribute their
+    start point and adjacent duplicates are merged (1 µm). `G2`/`G3` arcs read
+    `I`/`J` centre offsets from the arc start and are flattened with the same
+    deterministic sagitta chord angle as DXF (`tolerance`, default 0.05 mm); a
+    full circle gets at least three chords and every arc ends on its exact
+    endpoint. The cutting bounding box is translated to `(0, 0)` and the stock
+    is derived exactly like DXF import, so the imported document always
+    validates at revision `0`. Modal settings that would reinterpret
+    coordinates — `G20`, `G91`, `G90.1`, `G91.1`, `G92`, `G18`, `G19`, `G93`,
+    `G95`, `G96`, `G97` — fail the whole import with
+    `import/gcode-unsupported-mode` instead of guessing; a malformed block
+    (non-numeric word, arc without `I`/`J` or start point, coordinates before
+    any motion code, unterminated comment) fails with
+    `import/gcode-malformed-line`. Both messages carry the 1-based line.
+    Everything else that could carry geometry is skipped and reported as a
+    loss with its line number instead of failing: canned cycles such as
+    `G81`/`G83` (`import/gcode-unsupported-gcode`, which also covers `G4`,
+    `G28`, work offsets and unknown `G` words), radius-form `R` arcs
+    (`import/gcode-unsupported-arc`), unknown `M` codes
+    (`import/gcode-unsupported-mcode`), unknown word letters
+    (`import/gcode-unknown-word`) and cutting runs that collapse to a single
+    point (`import/gcode-degenerate-run`). Comments, `%` markers, `N`, `O`,
+    `S`, `T` and feed-only lines are read silently; `G17`, `G21`, `G40`,
+    `G49`, `G80`, `G90` and `G94` are accepted modal settings. The report
+    carries source and target paths, tolerance, depth, stepdown, line, move,
+    arc, operation and skipped counts, every loss and the written document
+    summary; the same program always imports to the same bytes.
 
 ## Tool library
 
@@ -467,6 +501,8 @@ a vendor dialect.
 | `import/invalid` | a `depth`, `stepdown` or `tolerance` import request value is not finite and greater than zero |
 | `import/dxf-malformed-group` | the ASCII DXF has a group code that is not an integer, a blank code line, a group without a value or a section without a name or `ENDSEC`; the message carries the 1-based line |
 | `import/dxf-malformed-entity` | a supported DXF entity is missing a required group or has a non-numeric or non-positive value; the message carries the 1-based line |
+| `import/gcode-unsupported-mode` | a G-code program uses a modal setting the reader cannot honour (`G20`, `G91`, `G92`, `G18`, `G19`, `G93`, `G95`, `G96`, `G97` or an unwinding variant); the message carries the 1-based line |
+| `import/gcode-malformed-line` | a G-code block is not readable: a word value is not a number, an arc lacks `I`/`J` or a known start point, coordinates appear before any motion code, a block carries two motion codes or a comment is unterminated; the message carries the 1-based line |
 | `path/outside-stock` | a profile, pocket, hole or engrave path point leaves the stock |
 | `post/invalid` | a G-code post option is invalid: a program number of zero, a line increment of zero or an unknown coolant |
 | `feeds/invalid` | the feed recommendation request has a diameter that is not finite and positive, or a flute count of zero |
@@ -508,9 +544,11 @@ outside the stock) do not make `ok` false.
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
 | `tests/dxf.rs` | LINE, closed LWPOLYLINE, POLYLINE vertices, ARC and CIRCLE flattening, segment counts and exact endpoints, sagitta tolerance, layer-derived ids, derived stock, loss reporting, malformed groups and entities with line numbers, units, determinism, revision 0 and existing-target rejection |
 | `tests/dxf_export.rs` | engrave round trip with points and closed flags, two-point `LINE`, stock-only empty document, circle outlines and drill holes as `CIRCLE`, layer sanitisation, byte determinism, `dxf` format parsing with `step` still unimplemented |
+| `tests/gcode_import.rs` | linear runs between rapids, plunge and feed-only lines keeping one run, bare axis continuation, arc flattening with exact endpoints and sagitta bound, full-circle closure, cycle/arc/M-code loss codes and lines, degenerate runs, inch and incremental mode rejection, malformed blocks with line numbers, empty program, invalid request, determinism, exported-program round trip, session write and `file/exists` rejection |
 | `tests/drawing.rs` | SVG structure, `viewBox`, stock/operations/legend/title block, XML escaping, rapid dashes and cut polylines, rapid underlay below cuts, island outlines with legend row (absent without islands), merged tab markers with legend row, start and plunge markers, PDF 1.4 MediaBox and single page, determinism, empty document and PDF-only non-ASCII loss |
 | `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options, operation sequencing, drill patterns and feed recommendations (skipped without the addon) |
 | `tests/dxf.test.ts` (TypeScript) | DXF import report and loss list, written engrave operations, existing-target rejection, CLI success output and CLI malformed-group failure (skipped without the addon) |
+| `tests/gcode.test.ts` (TypeScript) | G-code import report, losses and written engrave operation, existing-target rejection, `import/gcode-unsupported-mode` without a written file, CLI `import gcode` success output (skipped without the addon) |
 | `tests/drawing.test.ts` (TypeScript) | SDK SVG/PDF rendering and loss reporting, `exportDocument('svg')` byte parity, CLI stdout drawing and `--out` report (skipped without the addon) |
 
 ## Limitations
@@ -557,6 +595,15 @@ outside the stock) do not make `ok` false.
   raster or ring moves, no tabs, leads or ramps. Circular outlines and drill
   holes are exported as true `CIRCLE` entities, no `ARC` entity is emitted and
   the file has no `TABLES` section, so layers are not declared.
+- G-code import reads only the absolute-millimetre `G0`/`G1`/`G2`/`G3` move
+  subset: canned cycles (`G81`/`G82`/`G83`), radius-form `R` arcs, cutter
+  compensation, work offsets, subprograms and any other word are skipped and
+  reported as losses, and inch, incremental or shifted modes fail outright.
+  Every run becomes a centre-line `engrave` operation with one fixed tool; Z
+  heights, feeds, spindle speed and tool numbers are not read, so depths and
+  cutting values come from the request, not the program. Re-importing an
+  exported program therefore returns engrave geometry, not the original
+  operation kinds, tools or parameters.
 - A ramp entry is a straight-line descent along the first cutting direction of
   the level, folded back inside that first segment and returned to its start; it
   is not a helical, spiral or trochoidal entry and does not follow corners. It

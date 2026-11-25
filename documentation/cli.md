@@ -57,6 +57,41 @@ supported entity with missing or invalid values reports
 `import/dxf-malformed-entity`, both with the 1-based source line. A failed
 import writes nothing.
 
+## import gcode
+
+```shell
+open-cam import gcode <file.ocam> --from <program.nc>
+                        [--depth <mm>] [--stepdown <mm>] [--tolerance <mm>]
+```
+
+Creates a new document from the absolute-millimetre `G0`/`G1`/`G2`/`G3` subset
+of a G-code program — the moves this tool's own `export --format gcode`
+writes; the target must not exist. Every maximal cutting run between rapids,
+tool changes or skipped lines becomes one `engrave` operation with id and name
+`gcode-<n>`; bare axis words continue the last motion mode. Z heights, feeds,
+spindle speeds and tool numbers are ignored, and the import uses the same
+fixed `engrave` tool as DXF import. `G2`/`G3` arcs with `I`/`J` centre offsets
+are flattened with the deterministic chord sagitta tolerance: `--tolerance`
+defaults to `0.05` mm, `--depth` to `1` mm and `--stepdown` to `--depth`. The
+cutting bounding box is translated to `(0, 0)` and the stock is derived like
+DXF import; the new document keeps revision `0`.
+
+The JSON report carries `format` (`open-cam-gcode-import`), `version`, `units`,
+`source`, `path`, `tolerance`, `depth`, `stepdown`, `lineCount`, `moveCount`,
+`arcCount`, `operationCount`, `skippedCount`, `losses` and the written
+`document` summary.
+
+Canned cycles (`G81`, `G83`, …), radius-form `R` arcs, unknown `M` codes,
+unknown word letters and cutting runs that collapse to one point are skipped
+into `losses` with `import/gcode-unsupported-gcode`,
+`import/gcode-unsupported-arc`, `import/gcode-unsupported-mcode`,
+`import/gcode-unknown-word` or `import/gcode-degenerate-run`, each with the
+1-based line; they never fail the import. A modal setting that would
+reinterpret coordinates (`G20`, `G91`, `G92`, `G18`, `G19`, `G93`, `G95`,
+`G96`, `G97` or an unwinding variant) reports `import/gcode-unsupported-mode`
+and a malformed block reports `import/gcode-malformed-line`, both with the
+line. A failed import writes nothing.
+
 ## stock
 
 ```shell
@@ -587,6 +622,7 @@ Prints the machine-readable capability matrix.
 ```shell
 open-cam create bracket.ocam
 open-cam import dxf logo.ocam --from logo.dxf --depth 0.5 --tolerance 0.02
+open-cam import gcode program.ocam --from program.nc --depth 1
 open-cam stock bracket.ocam --width 120 --depth 80 --height 12
 open-cam tool add bracket.ocam --id t6 --diameter 6 --spindle 12000 --feed 1200 --plunge 300
 open-cam operation add bracket.ocam --id pocket --kind pocket --tool t6 \
