@@ -538,10 +538,14 @@ The drawing is rendered from the toolpath report, never recomputed:
 - the stock rectangle with its width × depth × height label;
 - one cutting polyline per operation, in a stable palette by operation index
   (`face`/`contour`/… colours follow the list position, not the clock);
-- rapid `G0` moves as light dashed lines;
+- rapid `G0` moves as light dashed lines in one underlay below the cutting
+  polylines;
+- pocket island outlines (rect polygon, circle) in a slate colour;
+- a thick burnt-orange marker segment per contour holding tab;
 - a ring at the operation start and a dot at every plunge point;
-- a legend that names cutting moves, rapid moves, plunge/start points and one
-  row per operation with its kind, id and tool diameter/radius;
+- a legend that names cutting moves, rapid moves, plunge/start points, the
+  island and tab markers when present, and one row per operation with its kind,
+  id and tool diameter/radius;
 - a title block with the document id, revision, units, operation count,
   estimated time and scale (SVG is 1:1 at 8 px/mm; PDF is fitted to the page and
   prints the resulting percentage).

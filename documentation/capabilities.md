@@ -333,12 +333,21 @@ The machine-readable version is printed by `open-cam capabilities` and by
     cutting move becomes a polyline per operation, rapid `G0` moves become light
     dashed lines (a vertical rapid has no XY extent and is skipped), each plunge
     point becomes a dot and the first non-rapid move of an operation gets a ring.
+    Pocket islands are drawn as their nominal outlines (rect as a closed
+    polygon, circle as a circle) in a dedicated slate colour below the cutting
+    moves, and every contour holding tab is marked by a thick burnt-orange
+    segment: consecutive lifted rapid chords of one tab merge into one marker
+    and repeats from the remaining Z levels are dropped. A tab whose lift is
+    capped at the clearance plane is not distinguishable from a normal rapid
+    and stays unmarked. All dashed rapids form one underlay group painted below
+    the operation groups, so they never cover a cutting polyline.
     An `arc` move is sampled at the engine's ring resolution (72 chords per turn)
     from its `from`, `to` and `centre`, and the exact move endpoint is appended,
     so the drawing matches the linear ring output without a new tolerance.
     Operation colours follow the document index through a fixed eight-colour
     palette, so equal documents produce equal colours. The legend explains the
-    cutting, rapid and plunge/start symbols and names every operation with its
+    cutting, rapid and plunge/start symbols, adds island-outline and holding-tab
+    rows only when the document has them, and names every operation with its
     kind, id and tool diameter/radius. The title block carries the document id
     (file stem), revision, units, operation count, estimated time and scale.
     SVG uses a millimetre `viewBox` at 8 px per millimetre. PDF is one A4
@@ -499,7 +508,7 @@ outside the stock) do not make `ok` false.
 | `tests/session.rs` | create, edit, reopen, export, in-use tool, atomic save-as |
 | `tests/dxf.rs` | LINE, closed LWPOLYLINE, POLYLINE vertices, ARC and CIRCLE flattening, segment counts and exact endpoints, sagitta tolerance, layer-derived ids, derived stock, loss reporting, malformed groups and entities with line numbers, units, determinism, revision 0 and existing-target rejection |
 | `tests/dxf_export.rs` | engrave round trip with points and closed flags, two-point `LINE`, stock-only empty document, circle outlines and drill holes as `CIRCLE`, layer sanitisation, byte determinism, `dxf` format parsing with `step` still unimplemented |
-| `tests/drawing.rs` | SVG structure, `viewBox`, stock/operations/legend/title block, XML escaping, rapid dashes and cut polylines, start and plunge markers, PDF 1.4 MediaBox and single page, determinism, empty document and PDF-only non-ASCII loss |
+| `tests/drawing.rs` | SVG structure, `viewBox`, stock/operations/legend/title block, XML escaping, rapid dashes and cut polylines, rapid underlay below cuts, island outlines with legend row (absent without islands), merged tab markers with legend row, start and plunge markers, PDF 1.4 MediaBox and single page, determinism, empty document and PDF-only non-ASCII loss |
 | `tests/smoke.test.ts` (TypeScript) | session lifecycle, argument errors, island pocket reporting, contour lead arcs, `G3` ring output, the tool library, G-code post options, operation sequencing, drill patterns and feed recommendations (skipped without the addon) |
 | `tests/dxf.test.ts` (TypeScript) | DXF import report and loss list, written engrave operations, existing-target rejection, CLI success output and CLI malformed-group failure (skipped without the addon) |
 | `tests/drawing.test.ts` (TypeScript) | SDK SVG/PDF rendering and loss reporting, `exportDocument('svg')` byte parity, CLI stdout drawing and `--out` report (skipped without the addon) |
