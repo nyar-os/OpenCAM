@@ -98,4 +98,15 @@ export default defineConfig({
         ts: { packages: ['@wae/open-cam'] },
         outputs: ['projects/packages/open-cam/dist/cli.js', 'projects/packages/open-cam/dist/index.js'],
     },
+    skills: {
+        packages: [
+            {
+                dir: 'projects/packages/open-cam-skills/skills',
+                packageJson: 'projects/packages/open-cam-skills/package.json',
+                appPackageJson: 'projects/packages/open-cam/package.json',
+                cliEntry: 'projects/packages/open-cam/dist/cli.js',
+                commandName: 'open-cam',
+            },
+        ],
+    },
 });

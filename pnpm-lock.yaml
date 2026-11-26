@@ -58,6 +58,8 @@ importers:
 
   projects/packages/open-cam-linux-x64: {}
 
+  projects/packages/open-cam-skills: {}
+
   projects/packages/open-cam-win32-x64: {}
 
   projects/sites/homepage:
